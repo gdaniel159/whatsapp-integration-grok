@@ -84,9 +84,10 @@ model KnowledgeBase {
 }
 
 model BotSettings {
-  id             String   @id @default("default")
-  welcomeMessage String   @db.Text
-  firstAction    String   @db.Text
-  hfModel        String?
-  updatedAt      DateTime @updatedAt
+  id                      String   @id @default("default")
+  welcomeMessage          String   @db.Text
+  firstAction             String   @db.Text
+  hfModel                 String?
+  globalAutoReplyEnabled  Boolean  @default(false)
+  updatedAt               DateTime @updatedAt
 }

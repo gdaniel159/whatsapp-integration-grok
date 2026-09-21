@@ -65,6 +65,7 @@ async function main() {
       welcomeMessage: DEFAULT_WELCOME,
       firstAction: DEFAULT_FIRST_ACTION,
       hfModel: null,
+      globalAutoReplyEnabled: false,
     },
   });
 

@@ -56,6 +56,7 @@
 - `welcomeMessage` String @db.Text
 - `firstAction` String @db.Text
 - `hfModel` String? — override de `HF_MODEL`
+- `globalAutoReplyEnabled` Boolean @default(false) — kill switch global de auto-respuestas
 - `updatedAt` DateTime @updatedAt
 
 ## Auth en disco

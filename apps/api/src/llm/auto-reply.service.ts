@@ -3,6 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { LlmService } from './llm.service';
 
+const DEFAULT_WELCOME =
+  '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.';
+
+const DEFAULT_FIRST_ACTION =
+  'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.';
+
 @Injectable()
 export class AutoReplyService {
   private readonly logger = new Logger(AutoReplyService.name);
@@ -35,6 +41,15 @@ export class AutoReplyService {
     }
     this.busy.add(conversationId);
     try {
+      // Global kill switch — before welcome / AI. Inbound persist+emit already done.
+      const settings = await this.ensureBotSettings();
+      if (!settings.globalAutoReplyEnabled) {
+        this.logger.debug(
+          `skip auto-reply (global OFF) ${conversationId}`,
+        );
+        return;
+      }
+
       const conv = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
       });
@@ -49,7 +64,7 @@ export class AutoReplyService {
       });
 
       if (inboundCount === 1) {
-        await this.sendWelcome(conversationId);
+        await this.sendWelcome(conversationId, settings);
       }
 
       await this.sendAiReply(conversationId, userBody);
@@ -58,8 +73,13 @@ export class AutoReplyService {
     }
   }
 
-  private async sendWelcome(conversationId: string) {
-    const settings = await this.ensureBotSettings();
+  private async sendWelcome(
+    conversationId: string,
+    settings: {
+      welcomeMessage: string;
+      firstAction: string;
+    },
+  ) {
     const text = [settings.welcomeMessage.trim(), settings.firstAction.trim()]
       .filter(Boolean)
       .join('\n\n');
@@ -91,16 +111,16 @@ export class AutoReplyService {
     }
   }
 
-  private async ensureBotSettings() {
+  /** Ensure singleton exists; new installs get globalAutoReplyEnabled: false. */
+  async ensureBotSettings() {
     return this.prisma.botSettings.upsert({
       where: { id: 'default' },
       update: {},
       create: {
         id: 'default',
-        welcomeMessage:
-          '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.',
-        firstAction:
-          'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.',
+        welcomeMessage: DEFAULT_WELCOME,
+        firstAction: DEFAULT_FIRST_ACTION,
+        globalAutoReplyEnabled: false,
       },
     });
   }

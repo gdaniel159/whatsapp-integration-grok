@@ -46,6 +46,7 @@ interface BotSettings {
   welcomeMessage: string;
   firstAction: string;
   hfModel: string | null;
+  globalAutoReplyEnabled?: boolean;
   updatedAt: string;
 }
 
@@ -112,6 +113,8 @@ export function Dashboard() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [kbSavedAt, setKbSavedAt] = useState<string | null>(null);
   const [settingsSavedAt, setSettingsSavedAt] = useState<string | null>(null);
+  const [globalAutoReplyEnabled, setGlobalAutoReplyEnabled] = useState(false);
+  const [togglingGlobalAutoReply, setTogglingGlobalAutoReply] = useState(false);
 
   // Contacts
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -171,6 +174,7 @@ export function Dashboard() {
       setWelcomeMessage(settings.welcomeMessage);
       setFirstAction(settings.firstAction);
       setHfModel(settings.hfModel || '');
+      setGlobalAutoReplyEnabled(settings.globalAutoReplyEnabled ?? false);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'Error cargando base de conocimiento',
@@ -217,6 +221,9 @@ export function Dashboard() {
       () => undefined,
     );
     loadConversations();
+    api<BotSettings>('/bot-settings')
+      .then((s) => setGlobalAutoReplyEnabled(s.globalAutoReplyEnabled ?? false))
+      .catch(() => setGlobalAutoReplyEnabled(false));
 
     const socket = getSocket();
     const onQr = (p: { qr: string }) => {
@@ -326,6 +333,27 @@ export function Dashboard() {
     }
   }
 
+  async function toggleGlobalAutoReply() {
+    const next = !globalAutoReplyEnabled;
+    setTogglingGlobalAutoReply(true);
+    setError('');
+    try {
+      const row = await api<BotSettings>('/bot-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ globalAutoReplyEnabled: next }),
+      });
+      setGlobalAutoReplyEnabled(row.globalAutoReplyEnabled ?? next);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo cambiar respuestas automáticas',
+      );
+    } finally {
+      setTogglingGlobalAutoReply(false);
+    }
+  }
+
   async function saveKnowledgeBase(e: React.FormEvent) {
     e.preventDefault();
     setKbSaving(true);
@@ -398,6 +426,44 @@ export function Dashboard() {
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="font-semibold text-lg">WhatsApp Manager</h1>
           <StatusBadge status={status} />
+          <div className="flex items-center gap-2 ml-1 pl-2 border-l border-slate-200">
+            <span className="text-xs sm:text-sm text-slate-600 whitespace-nowrap">
+              Respuestas automáticas
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={globalAutoReplyEnabled}
+              aria-label="Respuestas automáticas"
+              disabled={togglingGlobalAutoReply}
+              onClick={toggleGlobalAutoReply}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 ${
+                globalAutoReplyEnabled
+                  ? 'bg-brand-600 focus:ring-brand-500'
+                  : 'bg-slate-400 focus:ring-red-300'
+              }`}
+              title={
+                globalAutoReplyEnabled
+                  ? 'ON — auto-respuestas globales activas'
+                  : 'OFF — kill switch; no se envía bienvenida ni IA'
+              }
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                  globalAutoReplyEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+            <span
+              className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                globalAutoReplyEnabled
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {globalAutoReplyEnabled ? 'ON' : 'OFF'}
+            </span>
+          </div>
           <nav className="flex items-center gap-1 ml-2">
             {navBtn('chats', 'Chats')}
             {navBtn('contacts', 'Contactos')}

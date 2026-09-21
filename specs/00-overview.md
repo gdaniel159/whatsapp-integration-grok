@@ -25,9 +25,9 @@ Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El op
 1. Login → JWT → cookie/localStorage en web
 2. Arrancar sesión WA → emitir `whatsapp:qr` / `whatsapp:status`
 3. Mensajes entrantes → upsert Conversation/Message → `chat:message` / `chat:conversation`
-4. Si `aiMode=AI`: bienvenida (1er inbound) + auto-reply HF (async)
-5. Enviar mensaje vía REST → WA + persistencia + emit
-6. Editar KB / bienvenida en tab **Base de conocimiento**
+4. Auto-reply solo si `BotSettings.globalAutoReplyEnabled` (default false) **y** `aiMode=AI`: bienvenida (1er inbound) + HF (async). Inbound siempre persiste.
+5. Enviar mensaje vía REST → WA + persistencia + emit (no depende del kill switch)
+6. Editar KB / bienvenida en tab **Base de conocimiento**; toggle global **Respuestas automáticas** en el header
 
 ## Decisiones
 - **Baileys** sobre whatsapp-web.js: más simple en contenedor/headless.
