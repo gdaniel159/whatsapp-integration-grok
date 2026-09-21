@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+enum WaSessionStatus {
+  DISCONNECTED
+  QR
+  CONNECTED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Conversation {
+  id            String    @id @default(cuid())
+  remoteJid     String    @unique
+  name          String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  messages      Message[]
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      MessageDirection
+  body           String
+  timestamp      DateTime
+  waMessageId    String?
+  rawMeta        Json?
+
+  @@index([conversationId, timestamp])
+}
+
+model WhatsAppSession {
+  id        String          @id @default("default")
+  status    WaSessionStatus @default(DISCONNECTED)
+  lastQrAt  DateTime?
+  updatedAt DateTime        @updatedAt
+}

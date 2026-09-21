@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp-integration-grok",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WhatsApp bot manager — NestJS + Next.js + PostgreSQL",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "dev:api": "pnpm --filter @wig/api dev",
+    "dev:web": "pnpm --filter @wig/web dev",
+    "build": "pnpm -r run build",
+    "build:api": "pnpm --filter @wig/api build",
+    "build:web": "pnpm --filter @wig/web build",
+    "db:generate": "pnpm --filter @wig/api prisma:generate",
+    "db:migrate": "pnpm --filter @wig/api prisma:migrate",
+    "db:seed": "pnpm --filter @wig/api prisma:seed",
+    "db:push": "pnpm --filter @wig/api prisma:push"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

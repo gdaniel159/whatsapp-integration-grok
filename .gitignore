@@ -1,0 +1,16 @@
+node_modules
+dist
+.next
+.turbo
+*.log
+.env
+.env.local
+apps/api/.wa-auth
+apps/api/.env
+apps/web/.env
+apps/web/.env.local
+coverage
+*.tsbuildinfo
+.DS_Store
+prisma/*.db
+prisma/*.db-journal
