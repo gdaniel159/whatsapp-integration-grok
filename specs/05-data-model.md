@@ -8,12 +8,24 @@
 - `passwordHash` String
 - `createdAt` DateTime @default(now())
 
+### Contact
+- `id` String @id @default(cuid())
+- `waJid` String @unique — JID personal canónico (`@s.whatsapp.net`)
+- `phoneE164` String? @unique — `+…` si el user part es solo dígitos
+- `displayName` String?
+- `profileName` String?
+- `firstSeenAt` DateTime @default(now())
+- `lastSeenAt` DateTime?
+- `createdAt` / `updatedAt`
+- `conversations` Conversation[]
+
 ### Conversation
 - `id` String @id @default(cuid())
 - `remoteJid` String @unique
 - `name` String?
 - `lastMessageAt` DateTime?
 - `aiMode` enum AI | MANUAL @default(AI)
+- `contactId` String → Contact (onDelete: Restrict); @@index([contactId])
 - `createdAt` DateTime @default(now())
 - `messages` Message[]
 

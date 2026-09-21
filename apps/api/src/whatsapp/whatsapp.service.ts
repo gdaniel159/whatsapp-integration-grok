@@ -194,6 +194,8 @@ export class WhatsappService implements OnModuleInit {
       rawMeta: msg as unknown as object,
     });
 
+    if (!saved) return;
+
     // Auto-reply (AI mode): async, do not block inbound handling
     this.autoReply.handleInboundAsync(saved.conversationId, body);
   }

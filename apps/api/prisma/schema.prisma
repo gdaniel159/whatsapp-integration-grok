@@ -30,14 +30,31 @@ model User {
   createdAt    DateTime @default(now())
 }
 
+model Contact {
+  id          String         @id @default(cuid())
+  waJid       String         @unique
+  phoneE164   String?        @unique
+  displayName String?
+  profileName String?
+  firstSeenAt DateTime       @default(now())
+  lastSeenAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  conversations Conversation[]
+}
+
 model Conversation {
   id            String    @id @default(cuid())
   remoteJid     String    @unique
   name          String?
   lastMessageAt DateTime?
   aiMode        AiMode    @default(AI)
+  contactId     String
+  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
   createdAt     DateTime  @default(now())
   messages      Message[]
+
+  @@index([contactId])
 }
 
 model Message {

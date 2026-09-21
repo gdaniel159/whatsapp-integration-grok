@@ -8,6 +8,8 @@ import { AiMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { ContactsService } from '../contacts/contacts.service';
+import { normalizeWaJid } from '../contacts/jid.util';
 
 @Injectable()
 export class ChatService {
@@ -16,11 +18,22 @@ export class ChatService {
     private readonly events: EventsGateway,
     @Inject(forwardRef(() => WhatsappService))
     private readonly wa: WhatsappService,
+    private readonly contacts: ContactsService,
   ) {}
 
   listConversations() {
     return this.prisma.conversation.findMany({
       orderBy: { lastMessageAt: 'desc' },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            displayName: true,
+            phoneE164: true,
+            waJid: true,
+          },
+        },
+      },
     });
   }
 
@@ -45,6 +58,11 @@ export class ChatService {
     const waMessageId = result?.key?.id || undefined;
     const timestamp = new Date();
 
+    // Ensure Contact stays in sync on outbound (lastSeenAt / name)
+    await this.contacts.upsertFromWaJid(conv.remoteJid, {
+      seenAt: timestamp,
+    });
+
     const message = await this.prisma.message.create({
       data: {
         conversationId: conv.id,
@@ -58,13 +76,22 @@ export class ChatService {
     const updated = await this.prisma.conversation.update({
       where: { id: conv.id },
       data: { lastMessageAt: timestamp },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            displayName: true,
+            phoneE164: true,
+            waJid: true,
+          },
+        },
+      },
     });
 
     this.events.emitMessage(message);
     this.events.emitConversation(updated);
     return message;
   }
-
 
   async setAiMode(conversationId: string, aiMode: AiMode) {
     const conv = await this.prisma.conversation.findUnique({
@@ -74,6 +101,16 @@ export class ChatService {
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
       data: { aiMode },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            displayName: true,
+            phoneE164: true,
+            waJid: true,
+          },
+        },
+      },
     });
     this.events.emitConversation(updated);
     return updated;
@@ -87,16 +124,40 @@ export class ChatService {
     timestamp: Date;
     rawMeta?: object;
   }) {
+    const contact = await this.contacts.upsertFromWaJid(input.remoteJid, {
+      pushName: input.name,
+      seenAt: input.timestamp,
+    });
+
+    // Groups / non-personal: do not create Contact or Conversation
+    if (!contact) {
+      return null;
+    }
+
+    const remoteJid = normalizeWaJid(input.remoteJid) ?? input.remoteJid;
+
     const conv = await this.prisma.conversation.upsert({
-      where: { remoteJid: input.remoteJid },
+      where: { remoteJid },
       update: {
         lastMessageAt: input.timestamp,
+        contactId: contact.id,
         ...(input.name ? { name: input.name } : {}),
       },
       create: {
-        remoteJid: input.remoteJid,
+        remoteJid,
         name: input.name,
         lastMessageAt: input.timestamp,
+        contactId: contact.id,
+      },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            displayName: true,
+            phoneE164: true,
+            waJid: true,
+          },
+        },
       },
     });
 

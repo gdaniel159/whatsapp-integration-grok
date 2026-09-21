@@ -6,6 +6,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { ChatModule } from './chat/chat.module';
 import { EventsModule } from './events/events.module';
 import { LlmModule } from './llm/llm.module';
+import { ContactsModule } from './contacts/contacts.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { LlmModule } from './llm/llm.module';
     PrismaModule,
     EventsModule,
     AuthModule,
+    ContactsModule,
     WhatsappModule,
     ChatModule,
     LlmModule,
