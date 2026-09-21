@@ -98,6 +98,10 @@ export function Dashboard() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -403,6 +407,50 @@ export function Dashboard() {
     router.replace('/login');
   }
 
+  const NEAR_BOTTOM_PX = 80;
+
+  const isNearBottom = useCallback(() => {
+    const el = messagesViewportRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+  }, []);
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const end = messagesEndRef.current;
+    if (!end) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    end.scrollIntoView({ behavior: reduce ? 'auto' : behavior, block: 'end' });
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
+
+  const onMessagesScroll = useCallback(() => {
+    const near = isNearBottom();
+    stickToBottomRef.current = near;
+    setShowJumpToLatest(!near);
+  }, [isNearBottom]);
+
+  // Open conversation → jump to latest (instant)
+  useEffect(() => {
+    if (!selectedId) return;
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    // after paint
+    requestAnimationFrame(() => scrollToLatest('auto'));
+  }, [selectedId, scrollToLatest]);
+
+  // New messages → stick only if user was near bottom
+  useEffect(() => {
+    if (!selectedId || messages.length === 0) return;
+    if (stickToBottomRef.current) {
+      requestAnimationFrame(() => scrollToLatest('smooth'));
+    } else {
+      setShowJumpToLatest(true);
+    }
+  }, [messages, selectedId, scrollToLatest]);
+
   const aiMode = selected?.aiMode || 'AI';
 
   const navBtn = (id: Tab, label: string) => (
@@ -421,8 +469,8 @@ export function Dashboard() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
+    <div className="h-dvh max-h-dvh overflow-hidden flex flex-col">
+      <header className="shrink-0 border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="font-semibold text-lg">WhatsApp Manager</h1>
           <StatusBadge status={status} />
@@ -479,13 +527,13 @@ export function Dashboard() {
       </header>
 
       {error && tab !== 'contacts' && (
-        <div className="bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-100">
+        <div className="shrink-0 bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-100">
           {error}
         </div>
       )}
 
       {tab === 'kb' ? (
-        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
           <div className="max-w-3xl mx-auto space-y-6">
             <form
               onSubmit={saveKnowledgeBase}
@@ -585,7 +633,7 @@ export function Dashboard() {
           </div>
         </div>
       ) : tab === 'contacts' ? (
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-[320px_1fr] min-h-0">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px_1fr]">
           <aside className="border-r bg-white overflow-y-auto flex flex-col min-h-0">
             <div className="p-3 border-b space-y-2">
               <div className="text-xs font-semibold uppercase text-slate-400 tracking-wide">
@@ -734,7 +782,7 @@ export function Dashboard() {
           </section>
         </div>
       ) : status !== 'CONNECTED' ? (
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center space-y-4">
             <h2 className="text-xl font-semibold">Conectar WhatsApp</h2>
             <p className="text-sm text-slate-500">
@@ -763,50 +811,52 @@ export function Dashboard() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-[280px_1fr] min-h-0">
-          <aside className="border-r bg-white overflow-y-auto">
-            <div className="p-3 text-xs font-semibold uppercase text-slate-400 tracking-wide">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[280px_1fr]">
+          <aside className="border-r bg-white min-h-0 flex flex-col overflow-hidden">
+            <div className="shrink-0 p-3 text-xs font-semibold uppercase text-slate-400 tracking-wide">
               Conversaciones
             </div>
-            {conversations.length === 0 && (
-              <p className="px-3 text-sm text-slate-400">Sin chats aún</p>
-            )}
-            <ul>
-              {conversations.map((c) => (
-                <li key={c.id}>
-                  <button
-                    onClick={() => setSelectedId(c.id)}
-                    className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${
-                      selectedId === c.id ? 'bg-brand-50' : ''
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium text-sm truncate">
-                        {convLabel(c)}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {conversations.length === 0 && (
+                <p className="px-3 text-sm text-slate-400">Sin chats aún</p>
+              )}
+              <ul>
+                {conversations.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => setSelectedId(c.id)}
+                      className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${
+                        selectedId === c.id ? 'bg-brand-50' : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium text-sm truncate">
+                          {convLabel(c)}
+                        </div>
+                        <span
+                          className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                            (c.aiMode || 'AI') === 'AI'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {(c.aiMode || 'AI') === 'AI' ? 'IA' : 'Manual'}
+                        </span>
                       </div>
-                      <span
-                        className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
-                          (c.aiMode || 'AI') === 'AI'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-slate-200 text-slate-600'
-                        }`}
-                      >
-                        {(c.aiMode || 'AI') === 'AI' ? 'IA' : 'Manual'}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-400 truncate">
-                      {c.remoteJid}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <div className="text-xs text-slate-400 truncate">
+                        {c.remoteJid}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </aside>
 
-          <section className="flex flex-col min-h-0 bg-slate-50">
+          <section className="flex flex-col min-h-0 bg-slate-50 overflow-hidden">
             {selected ? (
               <>
-                <div className="border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
+                <div className="shrink-0 border-b bg-white px-4 py-3 flex items-center justify-between gap-3 z-10">
                   <div className="min-w-0">
                     <div className="font-medium truncate">
                       {convLabel(selected)}
@@ -842,32 +892,55 @@ export function Dashboard() {
                     </button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                  {messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
-                        m.direction === 'OUT'
-                          ? 'ml-auto bg-brand-600 text-white'
-                          : 'bg-white border text-slate-800'
-                      }`}
-                    >
-                      {m.body}
+
+                <div className="relative flex-1 min-h-0">
+                  <div
+                    className="chat-fade-top pointer-events-none absolute inset-x-0 top-0 z-[1] h-8 bg-gradient-to-b from-slate-50/95 via-slate-50/50 to-transparent backdrop-blur-[2px]"
+                    aria-hidden
+                  />
+                  <div
+                    ref={messagesViewportRef}
+                    onScroll={onMessagesScroll}
+                    className="h-full overflow-y-auto overscroll-contain p-4 space-y-2"
+                  >
+                    {messages.map((m) => (
                       <div
-                        className={`text-[10px] mt-1 ${
+                        key={m.id}
+                        className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
                           m.direction === 'OUT'
-                            ? 'text-emerald-100'
-                            : 'text-slate-400'
+                            ? 'ml-auto bg-brand-600 text-white'
+                            : 'bg-white border text-slate-800'
                         }`}
                       >
-                        {new Date(m.timestamp).toLocaleString()}
+                        {m.body}
+                        <div
+                          className={`text-[10px] mt-1 ${
+                            m.direction === 'OUT'
+                              ? 'text-emerald-100'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {new Date(m.timestamp).toLocaleString()}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </div>
+                  {showJumpToLatest && (
+                    <button
+                      type="button"
+                      onClick={() => scrollToLatest('smooth')}
+                      className="absolute bottom-3 right-3 z-[2] rounded-full bg-white border shadow-md px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      title="Ir al último mensaje"
+                    >
+                      ↓ Nuevos
+                    </button>
+                  )}
                 </div>
+
                 <form
                   onSubmit={sendMessage}
-                  className="border-t bg-white p-3 flex gap-2"
+                  className="shrink-0 border-t bg-white p-3 flex gap-2"
                 >
                   <input
                     className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
