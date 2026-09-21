@@ -1,7 +1,7 @@
 # 00 — Overview / Resumen del sistema
 
 ## Objetivo
-Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El operador inicia sesión, escanea QR, ve conversaciones y envía mensajes. Integración LLM (Hugging Face) queda como stub futuro.
+Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El operador inicia sesión, escanea QR, ve conversaciones y envía mensajes. **Auto-respuestas IA** con Hugging Face DeepSeek + base de conocimiento editable + toggle IA/Manual.
 
 ## Arquitectura
 | Capa | Tecnología |
@@ -14,22 +14,25 @@ Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El op
 | WhatsApp | `@whiskeysockets/baileys` (headless; sin Chromium) |
 | Auth | JWT (access) + bcrypt |
 | Realtime | Socket.IO (QR, status, mensajes) |
+| LLM | Hugging Face Inference Router (`router.huggingface.co/v1`) — DeepSeek |
 
 ## Apps
-- `apps/api` — REST + Socket.IO + WhatsAppService + Prisma
-- `apps/web` — login, dashboard QR/chat
-- `packages/shared` — tipos compartidos opcionales
+- `apps/api` — REST + Socket.IO + WhatsAppService + Prisma + LLM/KB
+- `apps/web` — login, dashboard QR/chat, Base de conocimiento
+- `packages/shared` — tipos compartidos
 
-## Flujos MVP
+## Flujos
 1. Login → JWT → cookie/localStorage en web
 2. Arrancar sesión WA → emitir `whatsapp:qr` / `whatsapp:status`
 3. Mensajes entrantes → upsert Conversation/Message → `chat:message` / `chat:conversation`
-4. Enviar mensaje vía REST → WA + persistencia + emit
+4. Si `aiMode=AI`: bienvenida (1er inbound) + auto-reply HF (async)
+5. Enviar mensaje vía REST → WA + persistencia + emit
+6. Editar KB / bienvenida en tab **Base de conocimiento**
 
 ## Decisiones
 - **Baileys** sobre whatsapp-web.js: más simple en contenedor/headless.
 - Auth state en `apps/api/.wa-auth` + status en tabla `WhatsAppSession`.
-- LLM: solo stub en `apps/api/src/llm/` (ver `04-llm-knowledge-base-future.md`).
+- LLM: módulo real en `apps/api/src/llm/` (ver `04-llm-knowledge-base.md`).
 
 ## Puertos
 - Web: `http://localhost:3000`

@@ -4,7 +4,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AiMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -63,6 +63,20 @@ export class ChatService {
     this.events.emitMessage(message);
     this.events.emitConversation(updated);
     return message;
+  }
+
+
+  async setAiMode(conversationId: string, aiMode: AiMode) {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+    if (!conv) throw new NotFoundException('Conversación no encontrada');
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { aiMode },
+    });
+    this.events.emitConversation(updated);
+    return updated;
   }
 
   async persistIncoming(input: {

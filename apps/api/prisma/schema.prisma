@@ -18,6 +18,11 @@ enum WaSessionStatus {
   CONNECTED
 }
 
+enum AiMode {
+  AI
+  MANUAL
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -30,6 +35,7 @@ model Conversation {
   remoteJid     String    @unique
   name          String?
   lastMessageAt DateTime?
+  aiMode        AiMode    @default(AI)
   createdAt     DateTime  @default(now())
   messages      Message[]
 }
@@ -52,4 +58,18 @@ model WhatsAppSession {
   status    WaSessionStatus @default(DISCONNECTED)
   lastQrAt  DateTime?
   updatedAt DateTime        @updatedAt
+}
+
+model KnowledgeBase {
+  id        String   @id @default("default")
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model BotSettings {
+  id             String   @id @default("default")
+  welcomeMessage String   @db.Text
+  firstAction    String   @db.Text
+  hfModel        String?
+  updatedAt      DateTime @updatedAt
 }

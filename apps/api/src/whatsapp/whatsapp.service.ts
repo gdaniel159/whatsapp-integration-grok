@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { ChatService } from '../chat/chat.service';
+import { AutoReplyService } from '../llm/auto-reply.service';
 import { WaSessionStatus } from '@prisma/client';
 
 @Injectable()
@@ -36,6 +37,8 @@ export class WhatsappService implements OnModuleInit {
     private readonly config: ConfigService,
     @Inject(forwardRef(() => ChatService))
     private readonly chat: ChatService,
+    @Inject(forwardRef(() => AutoReplyService))
+    private readonly autoReply: AutoReplyService,
   ) {
     const rel = this.config.get<string>('WA_AUTH_DIR') || '.wa-auth';
     this.authDir = path.isAbsolute(rel)
@@ -180,7 +183,7 @@ export class WhatsappService implements OnModuleInit {
     const name =
       msg.pushName || remoteJid.split('@')[0] || null;
 
-    await this.chat.persistIncoming({
+    const saved = await this.chat.persistIncoming({
       remoteJid,
       name,
       body,
@@ -190,6 +193,9 @@ export class WhatsappService implements OnModuleInit {
         : new Date(),
       rawMeta: msg as unknown as object,
     });
+
+    // Auto-reply (AI mode): async, do not block inbound handling
+    this.autoReply.handleInboundAsync(saved.conversationId, body);
   }
 
   private async setStatus(status: WaSessionStatus, qr = false) {

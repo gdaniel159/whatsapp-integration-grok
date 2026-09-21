@@ -13,6 +13,7 @@
 - `remoteJid` String @unique
 - `name` String?
 - `lastMessageAt` DateTime?
+- `aiMode` enum AI | MANUAL @default(AI)
 - `createdAt` DateTime @default(now())
 - `messages` Message[]
 
@@ -27,10 +28,27 @@
 - `rawMeta` Json?
 
 ### WhatsAppSession
-- `id` String @id @default(cuid()) — o singleton `id = "default"`
+- `id` String @id @default("default")
 - `status` enum DISCONNECTED | QR | CONNECTED
 - `lastQrAt` DateTime?
 - `updatedAt` DateTime @updatedAt
 
+### KnowledgeBase (singleton)
+- `id` String @id @default("default")
+- `content` String @db.Text
+- `updatedAt` DateTime @updatedAt
+
+### BotSettings (singleton)
+- `id` String @id @default("default")
+- `welcomeMessage` String @db.Text
+- `firstAction` String @db.Text
+- `hfModel` String? — override de `HF_MODEL`
+- `updatedAt` DateTime @updatedAt
+
 ## Auth en disco
 Credenciales Baileys en `apps/api/.wa-auth/` (gitignore).
+
+## Enums
+- `MessageDirection`: IN | OUT
+- `WaSessionStatus`: DISCONNECTED | QR | CONNECTED
+- `AiMode`: AI | MANUAL

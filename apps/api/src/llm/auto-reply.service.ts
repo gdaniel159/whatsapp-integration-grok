@@ -1,0 +1,107 @@
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { ChatService } from '../chat/chat.service';
+import { LlmService } from './llm.service';
+
+@Injectable()
+export class AutoReplyService {
+  private readonly logger = new Logger(AutoReplyService.name);
+  /** Prevent overlapping auto-replies for the same conversation */
+  private readonly busy = new Set<string>();
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly llm: LlmService,
+    @Inject(forwardRef(() => ChatService))
+    private readonly chat: ChatService,
+  ) {}
+
+  /**
+   * Fire-and-forget safe entry: never throws to caller.
+   * Call after inbound message is persisted.
+   */
+  handleInboundAsync(conversationId: string, userBody: string) {
+    void this.handleInbound(conversationId, userBody).catch((e) =>
+      this.logger.warn(
+        `auto-reply failed: ${e instanceof Error ? e.message : e}`,
+      ),
+    );
+  }
+
+  async handleInbound(conversationId: string, userBody: string) {
+    if (this.busy.has(conversationId)) {
+      this.logger.debug(`skip auto-reply (busy) ${conversationId}`);
+      return;
+    }
+    this.busy.add(conversationId);
+    try {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+      });
+      if (!conv) return;
+      if (conv.aiMode !== 'AI') {
+        this.logger.debug(`skip auto-reply (MANUAL) ${conversationId}`);
+        return;
+      }
+
+      const inboundCount = await this.prisma.message.count({
+        where: { conversationId, direction: 'IN' },
+      });
+
+      if (inboundCount === 1) {
+        await this.sendWelcome(conversationId);
+      }
+
+      await this.sendAiReply(conversationId, userBody);
+    } finally {
+      this.busy.delete(conversationId);
+    }
+  }
+
+  private async sendWelcome(conversationId: string) {
+    const settings = await this.ensureBotSettings();
+    const text = [settings.welcomeMessage.trim(), settings.firstAction.trim()]
+      .filter(Boolean)
+      .join('\n\n');
+    if (!text) return;
+    try {
+      await this.chat.sendMessage(conversationId, text);
+    } catch (e) {
+      this.logger.warn(
+        `welcome send failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  private async sendAiReply(conversationId: string, userBody: string) {
+    const kb = await this.prisma.knowledgeBase.findUnique({
+      where: { id: 'default' },
+    });
+    const system = this.llm.buildSystemPrompt(kb?.content || '');
+    const reply =
+      (await this.llm.chatCompletion(system, userBody)) ||
+      this.llm.fallbackReply();
+
+    try {
+      await this.chat.sendMessage(conversationId, reply);
+    } catch (e) {
+      this.logger.warn(
+        `AI reply send failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  private async ensureBotSettings() {
+    return this.prisma.botSettings.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: {
+        id: 'default',
+        welcomeMessage:
+          '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.',
+        firstAction:
+          'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.',
+      },
+    });
+  }
+}

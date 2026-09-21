@@ -1,13 +1,7 @@
-# 04 — LLM / Knowledge Base (FUTURO)
+# 04 — LLM / Knowledge Base (histórico)
 
-## Estado actual
-**Stub only.** Módulo `apps/api/src/llm/` con controller vacío y comentario apuntando a este spec. **Sin llamadas reales a Hugging Face.**
+**Este documento quedó obsoleto.** La implementación real está en:
 
-## Visión futura
-- Ingesta de documentos / KB
-- Respuestas automáticas vía HF Inference API
-- Configuración de modelo/prompt por admin
-- Opt-in por conversación
+→ [`04-llm-knowledge-base.md`](./04-llm-knowledge-base.md)
 
-## No implementar en MVP
-- Tokens HF, embeddings, RAG, auto-reply
+Se conserva solo como puntero para enlaces antiguos del MVP stub.

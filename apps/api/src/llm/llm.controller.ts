@@ -1,18 +1,28 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { LlmService } from './llm.service';
+import { ConfigService } from '@nestjs/config';
 
-/**
- * STUB — Knowledge Base / Hugging Face LLM.
- * Ver specs/04-llm-knowledge-base-future.md
- * No hay llamadas reales a HF en el MVP.
- */
 @Controller('llm')
+@UseGuards(JwtAuthGuard)
 export class LlmController {
+  constructor(
+    private readonly llm: LlmService,
+    private readonly config: ConfigService,
+  ) {}
+
   @Get('health')
-  health() {
+  async health() {
+    const hasToken = Boolean(this.llm.getToken());
+    const model = await this.llm.resolveModel();
     return {
-      status: 'stub',
-      message:
-        'LLM/KB no implementado. Ver specs/04-llm-knowledge-base-future.md',
+      status: hasToken ? 'ready' : 'no_token',
+      hfTokenConfigured: hasToken,
+      model,
+      router: 'https://router.huggingface.co/v1/chat/completions',
+      message: hasToken
+        ? 'HF Inference Router disponible'
+        : 'HF_TOKEN no configurado — auto-reply usará fallback',
     };
   }
 }
