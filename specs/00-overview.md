@@ -39,3 +39,6 @@ Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El op
 - Web: `http://localhost:3000`
 - API: `http://localhost:3001`
 - Postgres: `localhost:5432`
+
+## Commercial contacts
+CRM-lite fields on Contact (`leadStatus`, `notes`, `tags`) — see `08-contact-commercial.md`. No separate Lead model.

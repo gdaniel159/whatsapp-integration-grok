@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Contact } from '@prisma/client';
+import { Contact, LeadStatus } from '@prisma/client';
+import { UpdateCommercialDto } from './update-commercial.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   isPersonalWaJid,
@@ -44,6 +45,24 @@ export class ContactsService {
       conversationId: conversations[0]?.id ?? null,
       conversations,
     };
+  }
+
+
+  async updateCommercial(id: string, dto: UpdateCommercialDto) {
+    const existing = await this.prisma.contact.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Contacto no encontrado');
+
+    const data: {
+      leadStatus?: LeadStatus;
+      notes?: string;
+      tags?: string[];
+    } = {};
+    if (dto.leadStatus !== undefined) data.leadStatus = dto.leadStatus;
+    if (dto.notes !== undefined) data.notes = dto.notes;
+    if (dto.tags !== undefined) data.tags = dto.tags;
+
+    await this.prisma.contact.update({ where: { id }, data });
+    return this.getById(id);
   }
 
   /**

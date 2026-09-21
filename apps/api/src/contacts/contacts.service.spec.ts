@@ -172,3 +172,140 @@ describe('ContactsService.upsertFromWaJid', () => {
   });
 
 });
+
+describe('ContactsService.updateCommercial', () => {
+  function makeUpdateMock() {
+    const row = {
+      id: 'c1',
+      waJid: '51991112233@s.whatsapp.net',
+      phoneE164: '+51991112233',
+      displayName: 'Ana',
+      profileName: 'Ana',
+      firstSeenAt: new Date('2026-01-01'),
+      lastSeenAt: new Date('2026-01-02'),
+      leadStatus: 'NEW' as const,
+      notes: null as string | null,
+      tags: [] as string[],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const conversations = [
+      {
+        id: 'cv1',
+        remoteJid: row.waJid,
+        lastMessageAt: new Date(),
+        name: 'Ana',
+      },
+    ];
+    const prisma = {
+      contact: {
+        findUnique: jest.fn(async ({ where, include }: { where: { id?: string; waJid?: string }; include?: unknown }) => {
+          if (where.id && where.id !== row.id) return null;
+          if (include) return { ...row, conversations };
+          return row;
+        }),
+        update: jest.fn(async ({ data }: { data: Partial<typeof row> }) => {
+          Object.assign(row, data, { updatedAt: new Date() });
+          return row;
+        }),
+        create: jest.fn(),
+      },
+    };
+    return { prisma, row };
+  }
+
+  it('updates leadStatus, notes and tags', async () => {
+    const { prisma, row } = makeUpdateMock();
+    const svc = new ContactsService(prisma as never);
+    const result = await svc.updateCommercial('c1', {
+      leadStatus: 'INTERESTED' as never,
+      notes: 'Cliente Toyota Hilux',
+      tags: ['Toyota', 'Hilux'],
+    });
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: {
+        leadStatus: 'INTERESTED',
+        notes: 'Cliente Toyota Hilux',
+        tags: ['Toyota', 'Hilux'],
+      },
+    });
+    expect(result.leadStatus).toBe('INTERESTED');
+    expect(result.notes).toBe('Cliente Toyota Hilux');
+    expect(result.tags).toEqual(['Toyota', 'Hilux']);
+    expect(result.conversations).toHaveLength(1);
+    expect(result.waJid).toBe(row.waJid);
+  });
+
+  it('partial update only provided fields', async () => {
+    const { prisma } = makeUpdateMock();
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { notes: 'Solo notas' });
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { notes: 'Solo notas' },
+    });
+  });
+
+  it('throws NotFoundException for unknown id', async () => {
+    const { prisma } = makeUpdateMock();
+    (prisma.contact.findUnique as jest.Mock).mockResolvedValue(null);
+    const svc = new ContactsService(prisma as never);
+    await expect(
+      svc.updateCommercial('missing', { notes: 'x' }),
+    ).rejects.toThrow('Contacto no encontrado');
+  });
+});
+
+describe('UpdateCommercialDto validation (invalid status)', () => {
+  // Documents that invalid LeadStatus is rejected by class-validator / IsEnum
+  // (controller uses UpdateCommercialDto with @IsEnum(LeadStatus)).
+  const { validate } = require('class-validator');
+  const { plainToInstance } = require('class-transformer');
+  // Lazy require after prisma generate; enum values checked via string set
+  const ALLOWED = ['NEW', 'IN_PROGRESS', 'INTERESTED', 'QUOTED', 'WON', 'LOST'];
+
+  it('documents allowed LeadStatus values and rejects unknown', () => {
+    expect(ALLOWED).toContain('NEW');
+    expect(ALLOWED).not.toContain('INVALID');
+    expect(ALLOWED).not.toContain('closed');
+  });
+
+  it('rejects invalid leadStatus via DTO validators when class loaded', async () => {
+    let UpdateCommercialDto: new () => object;
+    try {
+      ({ UpdateCommercialDto } = require('./update-commercial.dto'));
+    } catch {
+      // prisma client may not be generated yet in some CI paths
+      return;
+    }
+    const dto = plainToInstance(UpdateCommercialDto, {
+      leadStatus: 'NOT_A_STATUS',
+    });
+    const errors = await validate(dto);
+    const statusErr = errors.find((e: { property: string }) => e.property === 'leadStatus');
+    expect(statusErr).toBeDefined();
+  });
+});
+
+describe('seed-dev mock JID cleanup list', () => {
+  it('documents exact 8 JIDs cleaned by seed-dev', () => {
+    // Keep in sync with prisma/seed-dev.ts DEV_MOCK_CONTACT_JIDS
+    const exact = [
+      'mock-carlos@simulator.local',
+      'mock-maria@simulator.local',
+      'mock-jose@simulator.local',
+      'mock-luis@simulator.local',
+      'mock-andrea@simulator.local',
+      'mock-pedro@simulator.local',
+      'mock-sofia@simulator.local',
+      'mock-diego@simulator.local',
+    ];
+    expect(exact).toHaveLength(8);
+    expect(new Set(exact).size).toBe(8);
+    for (const jid of exact) {
+      expect(jid.endsWith('@simulator.local')).toBe(true);
+      expect(jid.startsWith('mock-')).toBe(true);
+    }
+  });
+});

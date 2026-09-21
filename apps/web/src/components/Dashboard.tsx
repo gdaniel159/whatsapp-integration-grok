@@ -8,7 +8,23 @@ import { StatusBadge } from './StatusBadge';
 
 type WaStatus = 'DISCONNECTED' | 'QR' | 'CONNECTED';
 type AiMode = 'AI' | 'MANUAL';
+type LeadStatus =
+  | 'NEW'
+  | 'IN_PROGRESS'
+  | 'INTERESTED'
+  | 'QUOTED'
+  | 'WON'
+  | 'LOST';
 type Tab = 'chats' | 'kb' | 'contacts' | 'simulator';
+
+const LEAD_STATUS_OPTIONS: { value: LeadStatus; label: string }[] = [
+  { value: 'NEW', label: 'Nuevo' },
+  { value: 'IN_PROGRESS', label: 'En conversación' },
+  { value: 'INTERESTED', label: 'Interesado' },
+  { value: 'QUOTED', label: 'Cotización' },
+  { value: 'WON', label: 'Ganado' },
+  { value: 'LOST', label: 'Perdido' },
+];
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -60,6 +76,9 @@ interface ContactRow {
   profileName: string | null;
   firstSeenAt: string;
   lastSeenAt: string | null;
+  leadStatus?: LeadStatus;
+  notes?: string | null;
+  tags?: string[];
 }
 
 interface ContactConversation {
@@ -135,6 +154,12 @@ export function Dashboard() {
   );
   const [contactDetailLoading, setContactDetailLoading] = useState(false);
   const [contactDetailError, setContactDetailError] = useState('');
+  const [draftLeadStatus, setDraftLeadStatus] = useState<LeadStatus>('NEW');
+  const [draftNotes, setDraftNotes] = useState('');
+  const [draftTags, setDraftTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactSaveOk, setContactSaveOk] = useState('');
 
   // DEV simulator
   const [simDisplayName, setSimDisplayName] = useState('Cliente prueba');
@@ -214,9 +239,14 @@ export function Dashboard() {
   const loadContactDetail = useCallback(async (id: string) => {
     setContactDetailLoading(true);
     setContactDetailError('');
+    setContactSaveOk('');
     try {
       const detail = await api<ContactDetail>(`/contacts/${id}`);
       setContactDetail(detail);
+      setDraftLeadStatus(detail.leadStatus || 'NEW');
+      setDraftNotes(detail.notes || '');
+      setDraftTags(detail.tags || []);
+      setTagInput('');
     } catch (e) {
       setContactDetail(null);
       setContactDetailError(
@@ -410,6 +440,50 @@ export function Dashboard() {
     } finally {
       setSettingsSaving(false);
     }
+  }
+
+  async function saveContactCommercial(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contactDetail) return;
+    setContactSaving(true);
+    setContactDetailError('');
+    setContactSaveOk('');
+    try {
+      const updated = await api<ContactDetail>(
+        `/contacts/${contactDetail.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            leadStatus: draftLeadStatus,
+            notes: draftNotes,
+            tags: draftTags,
+          }),
+        },
+      );
+      setContactDetail(updated);
+      setDraftLeadStatus(updated.leadStatus || 'NEW');
+      setDraftNotes(updated.notes || '');
+      setDraftTags(updated.tags || []);
+      setContactSaveOk('Cambios guardados');
+      await loadContacts();
+    } catch (err) {
+      setContactDetailError(
+        err instanceof Error ? err.message : 'No se pudo guardar',
+      );
+    } finally {
+      setContactSaving(false);
+    }
+  }
+
+  function addDraftTag() {
+    const t = tagInput.trim();
+    if (!t) return;
+    if (!draftTags.includes(t)) setDraftTags((prev) => [...prev, t]);
+    setTagInput('');
+  }
+
+  function removeDraftTag(tag: string) {
+    setDraftTags((prev) => prev.filter((x) => x !== tag));
   }
 
   async function simulateInbound(e: React.FormEvent) {
@@ -796,8 +870,14 @@ export function Dashboard() {
                       <div className="text-xs text-slate-500 truncate">
                         {c.phoneE164 || c.waJid}
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        Visto: {formatDt(c.lastSeenAt)}
+                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-between gap-2">
+                        <span>Visto: {formatDt(c.lastSeenAt)}</span>
+                        {c.leadStatus ? (
+                          <span className="shrink-0 rounded bg-slate-100 text-slate-600 px-1.5 py-0.5">
+                            {LEAD_STATUS_OPTIONS.find((o) => o.value === c.leadStatus)
+                              ?.label || c.leadStatus}
+                          </span>
+                        ) : null}
                       </div>
                     </button>
                   </li>
@@ -869,6 +949,106 @@ export function Dashboard() {
                     </div>
                   </dl>
                 </div>
+
+                <form
+                  onSubmit={saveContactCommercial}
+                  className="bg-white rounded-2xl border shadow-sm p-5 space-y-4"
+                >
+                  <h3 className="font-semibold text-base">Datos comerciales</h3>
+                  <label className="block space-y-1">
+                    <span className="text-sm font-medium text-slate-700">
+                      Estado del lead
+                    </span>
+                    <select
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                      value={draftLeadStatus}
+                      onChange={(e) =>
+                        setDraftLeadStatus(e.target.value as LeadStatus)
+                      }
+                    >
+                      {LEAD_STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-sm font-medium text-slate-700">
+                      Notas
+                    </span>
+                    <textarea
+                      className="w-full min-h-[96px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      value={draftNotes}
+                      onChange={(e) => setDraftNotes(e.target.value)}
+                      placeholder="Notas internas del contacto…"
+                    />
+                  </label>
+                  <div className="space-y-2">
+                    <span className="text-sm font-medium text-slate-700">
+                      Etiquetas
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                      {draftTags.length === 0 ? (
+                        <span className="text-xs text-slate-400">
+                          Sin etiquetas
+                        </span>
+                      ) : (
+                        draftTags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 rounded-full bg-brand-50 text-brand-800 border border-brand-100 px-2.5 py-0.5 text-xs"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => removeDraftTag(tag)}
+                              className="text-brand-600 hover:text-brand-900 font-bold leading-none"
+                              aria-label={`Quitar ${tag}`}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addDraftTag();
+                          }
+                        }}
+                        placeholder="Agregar etiqueta…"
+                      />
+                      <button
+                        type="button"
+                        onClick={addDraftTag}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Añadir
+                      </button>
+                    </div>
+                  </div>
+                  {contactSaveOk && (
+                    <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
+                      {contactSaveOk}
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={contactSaving}
+                      className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                    >
+                      {contactSaving ? 'Guardando…' : 'Guardar cambios'}
+                    </button>
+                  </div>
+                </form>
 
                 <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-3">
                   <h3 className="font-semibold text-base">Conversaciones</h3>

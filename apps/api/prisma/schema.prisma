@@ -23,6 +23,15 @@ enum AiMode {
   MANUAL
 }
 
+enum LeadStatus {
+  NEW
+  IN_PROGRESS
+  INTERESTED
+  QUOTED
+  WON
+  LOST
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -38,6 +47,9 @@ model Contact {
   profileName String?
   firstSeenAt DateTime       @default(now())
   lastSeenAt  DateTime?
+  leadStatus  LeadStatus     @default(NEW)
+  notes       String?
+  tags        String[]       @default([])
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   conversations Conversation[]

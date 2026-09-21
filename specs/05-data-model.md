@@ -16,6 +16,9 @@
 - `profileName` String?
 - `firstSeenAt` DateTime @default(now())
 - `lastSeenAt` DateTime?
+- `leadStatus` enum LeadStatus @default(NEW) — commercial pipeline (no separate Lead model)
+- `notes` String? — internal commercial notes
+- `tags` String[] @default([]) — free-form labels
 - `createdAt` / `updatedAt`
 - `conversations` Conversation[]
 
@@ -66,3 +69,6 @@ Credenciales Baileys en `apps/api/.wa-auth/` (gitignore).
 - `MessageDirection`: IN | OUT
 - `WaSessionStatus`: DISCONNECTED | QR | CONNECTED
 - `AiMode`: AI | MANUAL
+- `LeadStatus`: NEW | IN_PROGRESS | INTERESTED | QUOTED | WON | LOST
+
+See also `08-contact-commercial.md`.

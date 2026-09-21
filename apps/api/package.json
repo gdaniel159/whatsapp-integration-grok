@@ -10,12 +10,13 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:push": "prisma db push",
-    "prisma:seed": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' ts-node prisma/seed.ts",
+    "prisma:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
     "test": "jest",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed:dev": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-dev.ts"
   },
   "prisma": {
-    "seed": "TS_NODE_COMPILER_OPTIONS={\"module\":\"CommonJS\"} ts-node prisma/seed.ts"
+    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
