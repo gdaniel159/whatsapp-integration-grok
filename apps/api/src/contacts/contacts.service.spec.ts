@@ -247,6 +247,28 @@ describe('ContactsService.updateCommercial', () => {
     });
   });
 
+  it('PATCH with only leadStatus does not clear notes/tags', async () => {
+    const { prisma, row } = makeUpdateMock();
+    row.notes = 'Cliente Toyota Hilux';
+    row.tags = ['Toyota', 'Hilux'];
+    row.leadStatus = 'NEW' as const;
+    const svc = new ContactsService(prisma as never);
+    const result = await svc.updateCommercial('c1', {
+      leadStatus: 'INTERESTED' as never,
+    });
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { leadStatus: 'INTERESTED' },
+    });
+    // update payload must not include notes/tags (would wipe if sent as undefined wrongly)
+    const updateArg = (prisma.contact.update as jest.Mock).mock.calls[0][0];
+    expect(updateArg.data).not.toHaveProperty('notes');
+    expect(updateArg.data).not.toHaveProperty('tags');
+    expect(result.leadStatus).toBe('INTERESTED');
+    expect(result.notes).toBe('Cliente Toyota Hilux');
+    expect(result.tags).toEqual(['Toyota', 'Hilux']);
+  });
+
   it('throws NotFoundException for unknown id', async () => {
     const { prisma } = makeUpdateMock();
     (prisma.contact.findUnique as jest.Mock).mockResolvedValue(null);

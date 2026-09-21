@@ -3,6 +3,16 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,53 +40,55 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-900 via-slate-900 to-slate-800 p-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md rounded-2xl bg-white shadow-xl p-8 space-y-5"
-      >
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">WhatsApp Manager</h1>
-          <p className="text-sm text-slate-500 mt-1">Inicia sesión como administrador</p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-brand-900 p-4">
+      <Card className="w-full max-w-md shadow-xl">
+        <CardHeader>
+          <CardTitle className="text-2xl">WhatsApp Manager</CardTitle>
+          <CardDescription>
+            Inicia sesión como administrador
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-5">
+            {error && (
+              <div className="rounded-lg bg-destructive/10 text-destructive text-sm px-3 py-2 border border-destructive/20">
+                {error}
+              </div>
+            )}
 
-        {error && (
-          <div className="rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2">
-            {error}
-          </div>
-        )}
+            <div className="space-y-2">
+              <Label htmlFor="username">Usuario</Label>
+              <Input
+                id="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </div>
 
-        <label className="block space-y-1">
-          <span className="text-sm font-medium text-slate-700">Usuario</span>
-          <input
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            required
-          />
-        </label>
+            <div className="space-y-2">
+              <Label htmlFor="password">Contraseña</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </div>
 
-        <label className="block space-y-1">
-          <span className="text-sm font-medium text-slate-700">Contraseña</span>
-          <input
-            type="password"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 transition"
-        >
-          {loading ? 'Entrando…' : 'Entrar'}
-        </button>
-      </form>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-brand-600 hover:bg-brand-700 text-white"
+            >
+              {loading ? 'Entrando…' : 'Entrar'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -41,4 +41,7 @@ Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El op
 - Postgres: `localhost:5432`
 
 ## Commercial contacts
-CRM-lite fields on Contact (`leadStatus`, `notes`, `tags`) — see `08-contact-commercial.md`. No separate Lead model.
+CRM-lite fields on Contact (`leadStatus`, `notes`, `tags`) — see `08-contact-commercial.md`. No separate Lead model. Pipeline Kanban: `10-commercial-pipeline-kanban.md`.
+
+## UI foundation
+Frontend uses **shadcn/ui** (new-york / slate) — see `09-shadcn-ui-foundation.md`.

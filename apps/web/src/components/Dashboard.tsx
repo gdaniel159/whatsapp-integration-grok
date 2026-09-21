@@ -2,29 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { api, clearToken } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { StatusBadge } from './StatusBadge';
+import { PipelineBoard } from './PipelineBoard';
+import { cn } from '@/lib/utils';
+import {
+  LEAD_STATUS_OPTIONS,
+  type LeadStatus,
+} from '@/lib/lead-status';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 type WaStatus = 'DISCONNECTED' | 'QR' | 'CONNECTED';
 type AiMode = 'AI' | 'MANUAL';
-type LeadStatus =
-  | 'NEW'
-  | 'IN_PROGRESS'
-  | 'INTERESTED'
-  | 'QUOTED'
-  | 'WON'
-  | 'LOST';
-type Tab = 'chats' | 'kb' | 'contacts' | 'simulator';
-
-const LEAD_STATUS_OPTIONS: { value: LeadStatus; label: string }[] = [
-  { value: 'NEW', label: 'Nuevo' },
-  { value: 'IN_PROGRESS', label: 'En conversación' },
-  { value: 'INTERESTED', label: 'Interesado' },
-  { value: 'QUOTED', label: 'Cotización' },
-  { value: 'WON', label: 'Ganado' },
-  { value: 'LOST', label: 'Perdido' },
-];
+type Tab = 'chats' | 'kb' | 'contacts' | 'pipeline' | 'simulator';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -409,6 +429,7 @@ export function Dashboard() {
       });
       setKbContent(row.content);
       setKbSavedAt(row.updatedAt);
+      toast.success('Base de conocimiento guardada');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar KB');
     } finally {
@@ -433,6 +454,7 @@ export function Dashboard() {
       setFirstAction(row.firstAction);
       setHfModel(row.hfModel || '');
       setSettingsSavedAt(row.updatedAt);
+      toast.success('Ajustes guardados');
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'No se pudo guardar ajustes',
@@ -465,6 +487,7 @@ export function Dashboard() {
       setDraftNotes(updated.notes || '');
       setDraftTags(updated.tags || []);
       setContactSaveOk('Cambios guardados');
+      toast.success('Datos comerciales guardados');
       await loadContacts();
     } catch (err) {
       setContactDetailError(
@@ -506,9 +529,9 @@ export function Dashboard() {
           body: simBody.trim(),
         }),
       });
-      setSimOk(
-        `OK — ${res.remoteJid} · conversación ${res.conversationId.slice(0, 8)}…`,
-      );
+      const okMsg = `OK — ${res.remoteJid} · conversación ${res.conversationId.slice(0, 8)}…`;
+      setSimOk(okMsg);
+      toast.success('Mensaje simulado', { description: okMsg });
       await loadConversations();
       setSelectedId(res.conversationId);
       setTab('chats');
@@ -573,81 +596,80 @@ export function Dashboard() {
   const aiMode = selected?.aiMode || 'AI';
 
   const navBtn = (id: Tab, label: string) => (
-    <button
+    <Button
       key={id}
       type="button"
+      variant={tab === id ? 'secondary' : 'ghost'}
+      size="sm"
       onClick={() => setTab(id)}
-      className={`text-sm px-3 py-1.5 rounded-lg ${
-        tab === id
-          ? 'bg-brand-50 text-brand-700 font-medium'
-          : 'text-slate-600 hover:bg-slate-100'
-      }`}
+      className={cn(
+        tab === id && 'bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700',
+      )}
     >
       {label}
-    </button>
+    </Button>
   );
 
   return (
-    <div className="h-dvh max-h-dvh overflow-hidden flex flex-col">
-      <header className="shrink-0 border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="font-semibold text-lg">WhatsApp Manager</h1>
+    <TooltipProvider delayDuration={300}>
+    <div className="h-dvh max-h-dvh overflow-hidden flex flex-col bg-background">
+      <header className="shrink-0 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 py-2.5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <h1 className="font-semibold text-lg tracking-tight">WhatsApp Manager</h1>
           <StatusBadge status={status} />
-          <div className="flex items-center gap-2 ml-1 pl-2 border-l border-slate-200">
-            <span className="text-xs sm:text-sm text-slate-600 whitespace-nowrap">
-              Respuestas automáticas
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={globalAutoReplyEnabled}
-              aria-label="Respuestas automáticas"
-              disabled={togglingGlobalAutoReply}
-              onClick={toggleGlobalAutoReply}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 ${
-                globalAutoReplyEnabled
-                  ? 'bg-brand-600 focus:ring-brand-500'
-                  : 'bg-slate-400 focus:ring-red-300'
-              }`}
-              title={
-                globalAutoReplyEnabled
-                  ? 'ON — auto-respuestas globales activas'
-                  : 'OFF — kill switch; no se envía bienvenida ni IA'
-              }
+          <Separator orientation="vertical" className="hidden sm:block h-6" />
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="global-auto-reply"
+              className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap font-normal"
             >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
-                  globalAutoReplyEnabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-            <span
-              className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+              Respuestas automáticas
+            </Label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Switch
+                    id="global-auto-reply"
+                    checked={globalAutoReplyEnabled}
+                    disabled={togglingGlobalAutoReply}
+                    onCheckedChange={() => toggleGlobalAutoReply()}
+                    aria-label="Respuestas automáticas"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {globalAutoReplyEnabled
+                  ? 'ON — auto-respuestas globales activas'
+                  : 'OFF — kill switch; no se envía bienvenida ni IA'}
+              </TooltipContent>
+            </Tooltip>
+            <Badge
+              variant="outline"
+              className={cn(
+                'rounded-full text-[10px] uppercase',
                 globalAutoReplyEnabled
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-red-100 text-red-700'
-              }`}
+                  ? 'border-transparent bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                  : 'border-transparent bg-red-100 text-red-700 hover:bg-red-100',
+              )}
             >
               {globalAutoReplyEnabled ? 'ON' : 'OFF'}
-            </span>
+            </Badge>
           </div>
-          <nav className="flex items-center gap-1 ml-2">
+          <nav className="flex items-center gap-1 ml-1">
             {navBtn('chats', 'Chats')}
             {navBtn('contacts', 'Contactos')}
+            {navBtn('pipeline', 'Pipeline')}
             {navBtn('kb', 'Base de conocimiento')}
             {isDev ? navBtn('simulator', 'Simulador') : null}
           </nav>
         </div>
-        <button
-          onClick={logout}
-          className="text-sm text-slate-600 hover:text-slate-900"
-        >
+        <Button variant="ghost" size="sm" onClick={logout}>
           Cerrar sesión
-        </button>
+        </Button>
       </header>
 
-      {error && tab !== 'contacts' && (
-        <div className="shrink-0 bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-100">
+      {error && tab !== 'contacts' && tab !== 'pipeline' && (
+        <div className="shrink-0 bg-destructive/10 text-destructive text-sm px-4 py-2 border-b border-destructive/20">
           {error}
         </div>
       )}
@@ -655,200 +677,216 @@ export function Dashboard() {
       {tab === 'simulator' && isDev ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
           <div className="max-w-lg mx-auto">
-            <form
-              onSubmit={simulateInbound}
-              className="bg-white rounded-2xl border shadow-sm p-5 space-y-4"
-            >
-              <div>
-                <h2 className="font-semibold text-lg">Simulador de mensajes</h2>
-                <p className="text-sm text-slate-500">
+            <Card>
+              <CardHeader>
+                <CardTitle>Simulador de mensajes</CardTitle>
+                <CardDescription>
                   Inyecta un mensaje entrante por el mismo pipeline que Baileys
                   (solo DEV). No envía nada a WhatsApp real.
-                </p>
-              </div>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Contacto
-                </span>
-                <input
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={simDisplayName}
-                  onChange={(e) => setSimDisplayName(e.target.value)}
-                  placeholder="Cliente prueba"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Identificador
-                </span>
-                <input
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={simContactKey}
-                  onChange={(e) => setSimContactKey(e.target.value)}
-                  placeholder="test-001"
-                />
-                <span className="text-xs text-slate-400">
-                  JID resultante: {(simContactKey.replace(/[^a-zA-Z0-9-]/g, '') || '…')}@simulator.local
-                </span>
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Mensaje
-                </span>
-                <textarea
-                  className="w-full min-h-[100px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={simBody}
-                  onChange={(e) => setSimBody(e.target.value)}
-                  placeholder="Hola"
-                />
-              </label>
-              {simError && (
-                <div className="rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2 border border-red-100">
-                  {simError}
-                </div>
-              )}
-              {simOk && (
-                <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
-                  {simOk}
-                </div>
-              )}
-              <div className="flex justify-end">
-                <button
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  id="sim-form"
+                  onSubmit={simulateInbound}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="sim-name">Contacto</Label>
+                    <Input
+                      id="sim-name"
+                      value={simDisplayName}
+                      onChange={(e) => setSimDisplayName(e.target.value)}
+                      placeholder="Cliente prueba"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sim-key">Identificador</Label>
+                    <Input
+                      id="sim-key"
+                      className="font-mono"
+                      value={simContactKey}
+                      onChange={(e) => setSimContactKey(e.target.value)}
+                      placeholder="test-001"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      JID resultante:{' '}
+                      {(simContactKey.replace(/[^a-zA-Z0-9-]/g, '') || '…')}
+                      @simulator.local
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sim-body">Mensaje</Label>
+                    <Textarea
+                      id="sim-body"
+                      className="min-h-[100px]"
+                      value={simBody}
+                      onChange={(e) => setSimBody(e.target.value)}
+                      placeholder="Hola"
+                    />
+                  </div>
+                  {simError && (
+                    <div className="rounded-lg bg-destructive/10 text-destructive text-sm px-3 py-2 border border-destructive/20">
+                      {simError}
+                    </div>
+                  )}
+                  {simOk && (
+                    <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
+                      {simOk}
+                    </div>
+                  )}
+                </form>
+              </CardContent>
+              <CardFooter className="justify-end">
+                <Button
                   type="submit"
+                  form="sim-form"
                   disabled={
                     simSending || !simContactKey.trim() || !simBody.trim()
                   }
-                  className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                  className="bg-brand-600 hover:bg-brand-700 text-white"
                 >
                   {simSending ? 'Simulando…' : 'Simular mensaje'}
-                </button>
-              </div>
-            </form>
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
         </div>
       ) : tab === 'kb' ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
           <div className="max-w-3xl mx-auto space-y-6">
-            <form
-              onSubmit={saveKnowledgeBase}
-              className="bg-white rounded-2xl border shadow-sm p-5 space-y-3"
-            >
-              <div>
-                <h2 className="font-semibold text-lg">Base de conocimiento</h2>
-                <p className="text-sm text-slate-500">
+            <Card>
+              <CardHeader>
+                <CardTitle>Base de conocimiento</CardTitle>
+                <CardDescription>
                   Markdown/texto que la IA usa para responder (productos,
                   horarios, FAQs…).
-                </p>
-              </div>
-              <textarea
-                className="w-full min-h-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
-                value={kbContent}
-                onChange={(e) => setKbContent(e.target.value)}
-                placeholder="# Información del negocio…"
-              />
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-slate-400">
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form id="kb-form" onSubmit={saveKnowledgeBase} className="space-y-3">
+                  <Textarea
+                    className="min-h-[220px] font-mono"
+                    value={kbContent}
+                    onChange={(e) => setKbContent(e.target.value)}
+                    placeholder="# Información del negocio…"
+                  />
+                </form>
+              </CardContent>
+              <CardFooter className="justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
                   {kbSavedAt
                     ? `Guardado: ${new Date(kbSavedAt).toLocaleString()}`
                     : ' '}
                 </span>
-                <button
+                <Button
                   type="submit"
+                  form="kb-form"
                   disabled={kbSaving}
-                  className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                  className="bg-brand-600 hover:bg-brand-700 text-white"
                 >
                   {kbSaving ? 'Guardando…' : 'Guardar KB'}
-                </button>
-              </div>
-            </form>
+                </Button>
+              </CardFooter>
+            </Card>
 
-            <form
-              onSubmit={saveBotSettings}
-              className="bg-white rounded-2xl border shadow-sm p-5 space-y-4"
-            >
-              <div>
-                <h2 className="font-semibold text-lg">
-                  Bienvenida y primera acción
-                </h2>
-                <p className="text-sm text-slate-500">
+            <Card>
+              <CardHeader>
+                <CardTitle>Bienvenida y primera acción</CardTitle>
+                <CardDescription>
                   Se envían en el primer mensaje entrante de cada conversación
                   (modo IA).
-                </p>
-              </div>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Mensaje de bienvenida
-                </span>
-                <textarea
-                  className="w-full min-h-[100px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={welcomeMessage}
-                  onChange={(e) => setWelcomeMessage(e.target.value)}
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Primera acción / CTA
-                </span>
-                <textarea
-                  className="w-full min-h-[72px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={firstAction}
-                  onChange={(e) => setFirstAction(e.target.value)}
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm font-medium text-slate-700">
-                  Modelo HF (opcional)
-                </span>
-                <input
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  value={hfModel}
-                  onChange={(e) => setHfModel(e.target.value)}
-                  placeholder="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-                />
-                <span className="text-xs text-slate-400">
-                  Vacío = usa HF_MODEL del entorno.
-                </span>
-              </label>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-slate-400">
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  id="settings-form"
+                  onSubmit={saveBotSettings}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="welcome">Mensaje de bienvenida</Label>
+                    <Textarea
+                      id="welcome"
+                      className="min-h-[100px]"
+                      value={welcomeMessage}
+                      onChange={(e) => setWelcomeMessage(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="first-action">Primera acción / CTA</Label>
+                    <Textarea
+                      id="first-action"
+                      className="min-h-[72px]"
+                      value={firstAction}
+                      onChange={(e) => setFirstAction(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="hf-model">Modelo HF (opcional)</Label>
+                    <Input
+                      id="hf-model"
+                      value={hfModel}
+                      onChange={(e) => setHfModel(e.target.value)}
+                      placeholder="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Vacío = usa HF_MODEL del entorno.
+                    </p>
+                  </div>
+                </form>
+              </CardContent>
+              <CardFooter className="justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
                   {settingsSavedAt
                     ? `Guardado: ${new Date(settingsSavedAt).toLocaleString()}`
                     : ' '}
                 </span>
-                <button
+                <Button
                   type="submit"
+                  form="settings-form"
                   disabled={settingsSaving}
-                  className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                  className="bg-brand-600 hover:bg-brand-700 text-white"
                 >
                   {settingsSaving ? 'Guardando…' : 'Guardar ajustes'}
-                </button>
-              </div>
-            </form>
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
         </div>
+      ) : tab === 'pipeline' ? (
+        <PipelineBoard
+          onOpenContact={(id) => {
+            setSelectedContactId(id);
+            setTab('contacts');
+          }}
+        />
       ) : tab === 'contacts' ? (
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px_1fr]">
-          <aside className="border-r bg-white overflow-y-auto flex flex-col min-h-0">
+          <aside className="border-r bg-card overflow-y-auto flex flex-col min-h-0">
             <div className="p-3 border-b space-y-2">
-              <div className="text-xs font-semibold uppercase text-slate-400 tracking-wide">
+              <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
                 Contactos
               </div>
-              <input
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              <Input
                 placeholder="Buscar por nombre o teléfono…"
                 value={contactSearch}
                 onChange={(e) => setContactSearch(e.target.value)}
               />
             </div>
             {contactsError && (
-              <div className="m-3 rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2 border border-red-100">
+              <div className="m-3 rounded-lg bg-destructive/10 text-destructive text-sm px-3 py-2 border border-destructive/20">
                 {contactsError}
               </div>
             )}
             {contactsLoading ? (
-              <p className="px-3 py-4 text-sm text-slate-400">Cargando…</p>
+              <div className="px-3 py-4 space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
             ) : filteredContacts.length === 0 ? (
-              <p className="px-3 py-4 text-sm text-slate-400">
+              <p className="px-3 py-4 text-sm text-muted-foreground">
                 {contacts.length === 0
                   ? 'Sin contactos aún'
                   : 'Ningún contacto coincide con la búsqueda'}
@@ -860,23 +898,24 @@ export function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setSelectedContactId(c.id)}
-                      className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${
-                        selectedContactId === c.id ? 'bg-brand-50' : ''
-                      }`}
+                      className={cn(
+                        'w-full text-left px-3 py-2.5 border-b hover:bg-muted/50',
+                        selectedContactId === c.id && 'bg-brand-50',
+                      )}
                     >
                       <div className="font-medium text-sm truncate">
                         {c.displayName || c.waJid.split('@')[0]}
                       </div>
-                      <div className="text-xs text-slate-500 truncate">
+                      <div className="text-xs text-muted-foreground truncate">
                         {c.phoneE164 || c.waJid}
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-between gap-2">
+                      <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center justify-between gap-2">
                         <span>Visto: {formatDt(c.lastSeenAt)}</span>
                         {c.leadStatus ? (
-                          <span className="shrink-0 rounded bg-slate-100 text-slate-600 px-1.5 py-0.5">
+                          <Badge variant="secondary" className="shrink-0 text-[10px] font-normal">
                             {LEAD_STATUS_OPTIONS.find((o) => o.value === c.leadStatus)
                               ?.label || c.leadStatus}
-                          </span>
+                          </Badge>
                         ) : null}
                       </div>
                     </button>
@@ -886,264 +925,278 @@ export function Dashboard() {
             )}
           </aside>
 
-          <section className="flex flex-col min-h-0 bg-slate-50 overflow-y-auto">
+          <section className="flex flex-col min-h-0 bg-muted/30 overflow-y-auto">
             {!selectedContactId ? (
-              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm p-6">
+              <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-6">
                 Selecciona un contacto
               </div>
             ) : contactDetailLoading ? (
-              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm p-6">
-                Cargando detalle…
+              <div className="p-6 max-w-2xl w-full mx-auto space-y-4">
+                <Skeleton className="h-40 w-full" />
+                <Skeleton className="h-56 w-full" />
               </div>
             ) : contactDetailError ? (
-              <div className="m-4 rounded-lg bg-red-50 text-red-700 text-sm px-4 py-3 border border-red-100">
+              <div className="m-4 rounded-lg bg-destructive/10 text-destructive text-sm px-4 py-3 border border-destructive/20">
                 {contactDetailError}
               </div>
             ) : contactDetail ? (
               <div className="p-4 md:p-6 max-w-2xl w-full mx-auto space-y-4">
-                <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-3">
-                  <h2 className="font-semibold text-lg truncate">
-                    {contactDetail.displayName ||
-                      contactDetail.waJid.split('@')[0]}
-                  </h2>
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-xs font-semibold uppercase text-slate-400">
-                        Nombre
-                      </dt>
-                      <dd className="text-slate-800">
-                        {contactDetail.displayName || '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase text-slate-400">
-                        Teléfono
-                      </dt>
-                      <dd className="text-slate-800">
-                        {contactDetail.phoneE164 || '—'}
-                      </dd>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <dt className="text-xs font-semibold uppercase text-slate-400">
-                        WhatsApp JID
-                      </dt>
-                      <dd className="text-slate-800 break-all">
-                        {contactDetail.waJid}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase text-slate-400">
-                        Primera vez
-                      </dt>
-                      <dd className="text-slate-800">
-                        {formatDt(contactDetail.firstSeenAt)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase text-slate-400">
-                        Última vez
-                      </dt>
-                      <dd className="text-slate-800">
-                        {formatDt(contactDetail.lastSeenAt)}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="truncate text-lg">
+                      {contactDetail.displayName ||
+                        contactDetail.waJid.split('@')[0]}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">
+                          Nombre
+                        </dt>
+                        <dd>{contactDetail.displayName || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">
+                          Teléfono
+                        </dt>
+                        <dd>{contactDetail.phoneE164 || '—'}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">
+                          WhatsApp JID
+                        </dt>
+                        <dd className="break-all">{contactDetail.waJid}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">
+                          Primera vez
+                        </dt>
+                        <dd>{formatDt(contactDetail.firstSeenAt)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">
+                          Última vez
+                        </dt>
+                        <dd>{formatDt(contactDetail.lastSeenAt)}</dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
 
-                <form
-                  onSubmit={saveContactCommercial}
-                  className="bg-white rounded-2xl border shadow-sm p-5 space-y-4"
-                >
-                  <h3 className="font-semibold text-base">Datos comerciales</h3>
-                  <label className="block space-y-1">
-                    <span className="text-sm font-medium text-slate-700">
-                      Estado del lead
-                    </span>
-                    <select
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-                      value={draftLeadStatus}
-                      onChange={(e) =>
-                        setDraftLeadStatus(e.target.value as LeadStatus)
-                      }
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Datos comerciales</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <form
+                      id="contact-commercial-form"
+                      onSubmit={saveContactCommercial}
+                      className="space-y-4"
                     >
-                      {LEAD_STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-sm font-medium text-slate-700">
-                      Notas
-                    </span>
-                    <textarea
-                      className="w-full min-h-[96px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                      value={draftNotes}
-                      onChange={(e) => setDraftNotes(e.target.value)}
-                      placeholder="Notas internas del contacto…"
-                    />
-                  </label>
-                  <div className="space-y-2">
-                    <span className="text-sm font-medium text-slate-700">
-                      Etiquetas
-                    </span>
-                    <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-                      {draftTags.length === 0 ? (
-                        <span className="text-xs text-slate-400">
-                          Sin etiquetas
-                        </span>
-                      ) : (
-                        draftTags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex items-center gap-1 rounded-full bg-brand-50 text-brand-800 border border-brand-100 px-2.5 py-0.5 text-xs"
-                          >
-                            {tag}
-                            <button
-                              type="button"
-                              onClick={() => removeDraftTag(tag)}
-                              className="text-brand-600 hover:text-brand-900 font-bold leading-none"
-                              aria-label={`Quitar ${tag}`}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addDraftTag();
+                      <div className="space-y-2">
+                        <Label>Estado del lead</Label>
+                        <Select
+                          value={draftLeadStatus}
+                          onValueChange={(v) =>
+                            setDraftLeadStatus(v as LeadStatus)
                           }
-                        }}
-                        placeholder="Agregar etiqueta…"
-                      />
-                      <button
-                        type="button"
-                        onClick={addDraftTag}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Añadir
-                      </button>
-                    </div>
-                  </div>
-                  {contactSaveOk && (
-                    <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
-                      {contactSaveOk}
-                    </div>
-                  )}
-                  <div className="flex justify-end">
-                    <button
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Estado" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {LEAD_STATUS_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="contact-notes">Notas</Label>
+                        <Textarea
+                          id="contact-notes"
+                          className="min-h-[96px]"
+                          value={draftNotes}
+                          onChange={(e) => setDraftNotes(e.target.value)}
+                          placeholder="Notas internas del contacto…"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Etiquetas</Label>
+                        <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                          {draftTags.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                              Sin etiquetas
+                            </span>
+                          ) : (
+                            draftTags.map((tag) => (
+                              <Badge
+                                key={tag}
+                                variant="outline"
+                                className="gap-1 rounded-full border-brand-100 bg-brand-50 text-brand-800"
+                              >
+                                {tag}
+                                <button
+                                  type="button"
+                                  onClick={() => removeDraftTag(tag)}
+                                  className="text-brand-600 hover:text-brand-900 font-bold leading-none"
+                                  aria-label={`Quitar ${tag}`}
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                            ))
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addDraftTag();
+                              }
+                            }}
+                            placeholder="Agregar etiqueta…"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={addDraftTag}
+                          >
+                            Añadir
+                          </Button>
+                        </div>
+                      </div>
+                      {contactSaveOk && (
+                        <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
+                          {contactSaveOk}
+                        </div>
+                      )}
+                    </form>
+                  </CardContent>
+                  <CardFooter className="justify-end">
+                    <Button
                       type="submit"
+                      form="contact-commercial-form"
                       disabled={contactSaving}
-                      className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                      className="bg-brand-600 hover:bg-brand-700 text-white"
                     >
                       {contactSaving ? 'Guardando…' : 'Guardar cambios'}
-                    </button>
-                  </div>
-                </form>
+                    </Button>
+                  </CardFooter>
+                </Card>
 
-                <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-3">
-                  <h3 className="font-semibold text-base">Conversaciones</h3>
-                  {!contactDetail.conversations?.length ? (
-                    <p className="text-sm text-slate-400">
-                      Sin conversaciones vinculadas
-                    </p>
-                  ) : (
-                    <ul className="divide-y rounded-lg border">
-                      {contactDetail.conversations.map((cv) => (
-                        <li
-                          key={cv.id}
-                          className="px-3 py-2.5 text-sm flex flex-col gap-0.5"
-                        >
-                          <span className="font-medium truncate">
-                            {cv.name || cv.remoteJid.split('@')[0]}
-                          </span>
-                          <span className="text-xs text-slate-500 truncate">
-                            {cv.remoteJid}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            Último mensaje: {formatDt(cv.lastMessageAt)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Conversaciones</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {!contactDetail.conversations?.length ? (
+                      <p className="text-sm text-muted-foreground">
+                        Sin conversaciones vinculadas
+                      </p>
+                    ) : (
+                      <ul className="divide-y rounded-lg border">
+                        {contactDetail.conversations.map((cv) => (
+                          <li
+                            key={cv.id}
+                            className="px-3 py-2.5 text-sm flex flex-col gap-0.5"
+                          >
+                            <span className="font-medium truncate">
+                              {cv.name || cv.remoteJid.split('@')[0]}
+                            </span>
+                            <span className="text-xs text-muted-foreground truncate">
+                              {cv.remoteJid}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Último mensaje: {formatDt(cv.lastMessageAt)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             ) : null}
           </section>
         </div>
       ) : status !== 'CONNECTED' && !isDev ? (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center space-y-4">
-            <h2 className="text-xl font-semibold">Conectar WhatsApp</h2>
-            <p className="text-sm text-slate-500">
-              Escanea el código QR con WhatsApp → Dispositivos vinculados.
-            </p>
-            {qr ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={qr}
-                alt="QR WhatsApp"
-                className="mx-auto w-64 h-64 rounded-lg border"
-              />
-            ) : (
-              <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
-                Esperando QR… (pulsa reiniciar si no aparece)
-              </div>
-            )}
-            <button
-              className="rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm"
-              onClick={() =>
-                api('/whatsapp/start', { method: 'POST' }).catch(() => undefined)
-              }
-            >
-              Reiniciar sesión WA
-            </button>
-          </div>
+          <Card className="max-w-md w-full shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-xl">Conectar WhatsApp</CardTitle>
+              <CardDescription>
+                Escanea el código QR con WhatsApp → Dispositivos vinculados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-center">
+              {qr ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={qr}
+                  alt="QR WhatsApp"
+                  className="mx-auto w-64 h-64 rounded-lg border"
+                />
+              ) : (
+                <div className="h-64 flex items-center justify-center text-muted-foreground text-sm">
+                  Esperando QR… (pulsa reiniciar si no aparece)
+                </div>
+              )}
+              <Button
+                className="bg-brand-600 hover:bg-brand-700 text-white"
+                onClick={() =>
+                  api('/whatsapp/start', { method: 'POST' }).catch(() => undefined)
+                }
+              >
+                Reiniciar sesión WA
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       ) : (
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[280px_1fr]">
-          <aside className="border-r bg-white min-h-0 flex flex-col overflow-hidden">
-            <div className="shrink-0 p-3 text-xs font-semibold uppercase text-slate-400 tracking-wide">
+          <aside className="border-r bg-card min-h-0 flex flex-col overflow-hidden">
+            <div className="shrink-0 p-3 text-xs font-semibold uppercase text-muted-foreground tracking-wide">
               Conversaciones
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
               {conversations.length === 0 && (
-                <p className="px-3 text-sm text-slate-400">Sin chats aún</p>
+                <p className="px-3 text-sm text-muted-foreground">Sin chats aún</p>
               )}
               <ul>
                 {conversations.map((c) => (
                   <li key={c.id}>
                     <button
                       onClick={() => setSelectedId(c.id)}
-                      className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${
-                        selectedId === c.id ? 'bg-brand-50' : ''
-                      }`}
+                      className={cn(
+                        'w-full text-left px-3 py-2.5 border-b hover:bg-muted/50',
+                        selectedId === c.id && 'bg-brand-50',
+                      )}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="font-medium text-sm truncate">
                           {convLabel(c)}
                         </div>
-                        <span
-                          className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'shrink-0 text-[10px] uppercase rounded',
                             (c.aiMode || 'AI') === 'AI'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-slate-200 text-slate-600'
-                          }`}
+                              ? 'border-transparent bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                              : 'border-transparent bg-slate-200 text-slate-600 hover:bg-slate-200',
+                          )}
                         >
                           {(c.aiMode || 'AI') === 'AI' ? 'IA' : 'Manual'}
-                        </span>
+                        </Badge>
                       </div>
-                      <div className="text-xs text-slate-400 truncate">
+                      <div className="text-xs text-muted-foreground truncate">
                         {c.remoteJid}
                       </div>
                     </button>
@@ -1153,10 +1206,10 @@ export function Dashboard() {
             </div>
           </aside>
 
-          <section className="flex flex-col min-h-0 bg-slate-50 overflow-hidden">
+          <section className="flex flex-col min-h-0 bg-muted/30 overflow-hidden">
             {selected ? (
               <>
-                <div className="shrink-0 border-b bg-white px-4 py-3 flex items-center justify-between gap-3 z-10">
+                <div className="shrink-0 border-b bg-card px-4 py-3 flex items-center justify-between gap-3 z-10">
                   <div className="min-w-0">
                     <div className="font-medium truncate">
                       {convLabel(selected)}
@@ -1166,30 +1219,26 @@ export function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-muted-foreground">
                       {aiMode === 'AI' ? 'IA' : 'Manual'}
                     </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={aiMode === 'AI'}
-                      disabled={togglingAi}
-                      onClick={toggleAiMode}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 disabled:opacity-50 ${
-                        aiMode === 'AI' ? 'bg-brand-600' : 'bg-slate-300'
-                      }`}
-                      title={
-                        aiMode === 'AI'
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Switch
+                            checked={aiMode === 'AI'}
+                            disabled={togglingAi}
+                            onCheckedChange={() => toggleAiMode()}
+                            aria-label="Modo IA de la conversación"
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {aiMode === 'AI'
                           ? 'Cambiar a Manual (sin auto-respuesta)'
-                          : 'Cambiar a IA (auto-respuesta)'
-                      }
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
-                          aiMode === 'AI' ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
+                          : 'Cambiar a IA (auto-respuesta)'}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
 
@@ -1227,23 +1276,25 @@ export function Dashboard() {
                     <div ref={messagesEndRef} />
                   </div>
                   {showJumpToLatest && (
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => scrollToLatest('smooth')}
-                      className="absolute bottom-3 right-3 z-[2] rounded-full bg-white border shadow-md px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      className="absolute bottom-3 right-3 z-[2] rounded-full shadow-md h-8"
                       title="Ir al último mensaje"
                     >
                       ↓ Nuevos
-                    </button>
+                    </Button>
                   )}
                 </div>
 
                 <form
                   onSubmit={sendMessage}
-                  className="shrink-0 border-t bg-white p-3 flex gap-2"
+                  className="shrink-0 border-t bg-card p-3 flex gap-2"
                 >
-                  <input
-                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  <Input
+                    className="flex-1"
                     placeholder={
                       aiMode === 'MANUAL'
                         ? 'Modo Manual — escribe tu respuesta…'
@@ -1252,17 +1303,17 @@ export function Dashboard() {
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                   />
-                  <button
+                  <Button
                     type="submit"
                     disabled={sending || !draft.trim()}
-                    className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                    className="bg-brand-600 hover:bg-brand-700 text-white"
                   >
                     Enviar
-                  </button>
+                  </Button>
                 </form>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
+              <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
                 Selecciona una conversación
               </div>
             )}
@@ -1270,5 +1321,6 @@ export function Dashboard() {
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }
