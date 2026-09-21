@@ -25,7 +25,8 @@
 - `name` String?
 - `lastMessageAt` DateTime?
 - `aiMode` enum AI | MANUAL @default(AI)
-- `contactId` String → Contact (onDelete: Restrict); @@index([contactId])
+- `contactId` String? → Contact? (onDelete: Restrict; nullable for historical/unlinked rows); @@index([contactId])
+  - App: new personal chats always set contactId via ContactsService upsert; groups never create Contact
 - `createdAt` DateTime @default(now())
 - `messages` Message[]
 

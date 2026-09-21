@@ -1,7 +1,7 @@
 # 06 — Contacts / Contactos (persistentes)
 
 ## Estado
-**Implementado** (modelo Contact + upsert + API lectura + backfill). Sin UI CRM ni pipeline.
+**Implementado** (modelo Contact + upsert + API lectura + backfill + UI preliminar Contactos). Sin CRM/leads/pipeline.
 
 ## Objetivo
 Cuando una persona interactúe con el WhatsApp conectado, el sistema debe mantener una **entidad persistente Contact** que la represente de forma estable en el tiempo, independiente del hilo de mensajes, para poder enriquecerla más adelante (CRM) sin rehacer el modelo de chat.
@@ -68,7 +68,7 @@ Relaciones:
 
 ### Conversation (evolución mínima)
 Añadir:
-- `contactId String` → `Contact` `@relation(..., onDelete: Restrict)`  
+- `contactId String?` → `Contact?` `@relation(..., onDelete: Restrict)` — **nullable** en DB por compatibilidad histórica (grupos / filas no linkeadas tras migración segura)
 - Índice `@@index([contactId])`
 
 Mantener:
@@ -76,6 +76,7 @@ Mantener:
 - `name`, `lastMessageAt`, `aiMode`, `messages`
 
 Regla de consistencia: para chats 1:1, `Conversation.remoteJid` debe coincidir con `Contact.waJid` tras normalización.
+**App layer:** toda Conversation personal **nueva** debe obtener Contact vía `ContactsService.upsertFromWaJid` y setear `contactId` (requerido en lógica de negocio, no como NOT NULL en schema). Grupos nunca crean Contact.
 
 ### Message
 Sin cambio de esquema. Sigue colgando solo de `Conversation`. El contacto se obtiene `Message → Conversation → Contact`.
@@ -110,24 +111,29 @@ Sin cambio de esquema. Sigue colgando solo de `Conversation`. El contacto se obt
 | Método | Ruta | Auth | Notas |
 |--------|------|------|-------|
 | GET | `/contacts` | Sí | Lista paginada simple; orden `lastSeenAt` desc |
-| GET | `/contacts/:id` | Sí | Detalle + `conversationId` asociado si existe |
+| GET | `/contacts/:id` | Sí | Detalle + `conversationId` + `conversations[]` (`id`, `remoteJid`, `lastMessageAt`, `name`) |
 | GET | `/conversations` | Sí | Incluir `contact: { id, displayName, phoneE164, waJid }` embebido (extensión no breaking) |
 
 Sin PATCH rico de ficha CRM en esta iteración (opcional: PATCH solo `displayName` si se necesita para prueba).
 
-## UI (esta iteración)
-- **No** requiere pantalla CRM.
-- Chat existente: preferir `contact.displayName` sobre `conversation.name` cuando exista (cambio menor de presentación).
+## UI (esta iteración) — preliminar Contactos
+- **No** CRM (sin edit/delete/tags/stages/owner/notes/leads).
+- Nav **Contactos** junto a Chats / Base de conocimiento (tab en Dashboard).
+- Lista `GET /contacts`: displayName (fallback waJid), phoneE164, waJid, firstSeenAt, lastSeenAt; loading/empty/error; búsqueda local por nombre o teléfono; responsive.
+- Detalle `GET /contacts/:id`: name, phone, waJid, timestamps + conversaciones read-only (`id`, `remoteJid`, `lastMessageAt`, `name`) si el endpoint las devuelve.
+- Chat existente: preferir `contact.displayName` sobre `conversation.name` cuando `contact` esté presente (manejar `contactId`/`contact` null).
 
 ## Criterios de aceptación
-1. Spec aprobada; modelo Contact documentado y alineado con Prisma futuro.
-2. Tras implementar (iteración de código): al llegar un IN 1:1 se persiste exactamente un Contact por `waJid`.
+1. Spec aprobada; modelo Contact documentado y alineado con Prisma.
+2. Al llegar un IN 1:1 se persiste exactamente un Contact por `waJid`.
 3. Reincidir el mismo JID no crea fila duplicada.
-4. Toda Conversation 1:1 nueva tiene `contactId` no nulo.
-5. Messages siguen accesibles solo vía Conversation; se puede navegar al Contact desde la conversación.
-6. Migración/backfill deja 0 Conversation huérfanas (`contactId` null) en chats personales.
-7. Grupos no generan Contact (o se documenta skip en logs).
-8. Ninguna feature de la lista “Fuera de alcance” aparece en el PR de implementación.
+4. Toda Conversation 1:1 **nueva** tiene `contactId` no nulo (app layer); schema permite null por compatibilidad histórica.
+5. Messages siguen accesibles solo vía Conversation; detalle de contacto puede listar conversaciones vinculadas.
+6. Migración/backfill **no destructiva**: sin `DELETE` de Conversation/Message; backfill solo personal `@s.whatsapp.net`; `contactId` permanece nullable (no `SET NOT NULL`).
+7. Grupos no generan Contact.
+8. Ninguna feature CRM/leads de “Fuera de alcance” en el PR.
+9. UI Contactos: listado + detalle + búsqueda local; estados loading/empty/error; sin mutaciones de ficha.
+10. TypeScript/API manejan `contact`/`contactId` null de forma segura (incluir contact solo cuando presente).
 
 ## Archivos / componentes probablemente afectados (impl. futura)
 | Área | Ruta probable |
@@ -146,6 +152,10 @@ Sin PATCH rico de ficha CRM en esta iteración (opcional: PATCH solo `displayNam
 3. **Deduplicación** por `waJid` normalizado; `phoneE164` auxiliar único nullable.
 4. Campos CRM (stage, owner, tags…) **aplazados**.
 5. `aiMode` permanece en Conversation.
+
+## Migración
+- Original `*_contacts`: CREATE Contact, ADD `contactId` nullable, BACKFILL personal JIDs (normalize `:device`), UPDATE matchable, FK Restrict + index. **Sin DELETE** Conversation/Message. **Sin** `SET NOT NULL`.
+- Follow-up `*_contacts_nullable_safe` (si un entorno ya aplicó la versión destructiva): `ALTER … DROP NOT NULL`; documenta filas históricas con `contactId` NULL. Sin deletes.
 
 ## Dudas / riesgos
 1. **LID / JID alternativos** de WhatsApp (cuentas que cambian de identificador): la unicidad solo por JID puede generar duplicados a largo plazo; mitigación futura: tabla de alias o merge manual — fuera de alcance.

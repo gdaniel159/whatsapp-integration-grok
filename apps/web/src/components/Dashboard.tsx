@@ -8,7 +8,14 @@ import { StatusBadge } from './StatusBadge';
 
 type WaStatus = 'DISCONNECTED' | 'QR' | 'CONNECTED';
 type AiMode = 'AI' | 'MANUAL';
-type Tab = 'chats' | 'kb';
+type Tab = 'chats' | 'kb' | 'contacts';
+
+interface ContactSummary {
+  id: string;
+  displayName: string | null;
+  phoneE164: string | null;
+  waJid: string;
+}
 
 interface Conversation {
   id: string;
@@ -16,6 +23,8 @@ interface Conversation {
   name: string | null;
   lastMessageAt: string | null;
   aiMode?: AiMode;
+  contactId?: string | null;
+  contact?: ContactSummary | null;
 }
 
 interface Message {
@@ -38,6 +47,45 @@ interface BotSettings {
   firstAction: string;
   hfModel: string | null;
   updatedAt: string;
+}
+
+interface ContactRow {
+  id: string;
+  waJid: string;
+  phoneE164: string | null;
+  displayName: string | null;
+  profileName: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string | null;
+}
+
+interface ContactConversation {
+  id: string;
+  remoteJid: string;
+  lastMessageAt: string | null;
+  name: string | null;
+}
+
+interface ContactDetail extends ContactRow {
+  conversationId: string | null;
+  conversations: ContactConversation[];
+}
+
+function convLabel(c: Conversation) {
+  return (
+    c.contact?.displayName ||
+    c.name ||
+    c.remoteJid.split('@')[0]
+  );
+}
+
+function formatDt(value: string | null | undefined) {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
 }
 
 export function Dashboard() {
@@ -65,10 +113,35 @@ export function Dashboard() {
   const [kbSavedAt, setKbSavedAt] = useState<string | null>(null);
   const [settingsSavedAt, setSettingsSavedAt] = useState<string | null>(null);
 
+  // Contacts
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(
+    null,
+  );
+  const [contactDetail, setContactDetail] = useState<ContactDetail | null>(
+    null,
+  );
+  const [contactDetailLoading, setContactDetailLoading] = useState(false);
+  const [contactDetailError, setContactDetailError] = useState('');
+
   const selected = useMemo(
     () => conversations.find((c) => c.id === selectedId) || null,
     [conversations, selectedId],
   );
+
+  const filteredContacts = useMemo(() => {
+    const q = contactSearch.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) => {
+      const name = (c.displayName || '').toLowerCase();
+      const phone = (c.phoneE164 || '').toLowerCase();
+      const jid = c.waJid.toLowerCase();
+      return name.includes(q) || phone.includes(q) || jid.includes(q);
+    });
+  }, [contacts, contactSearch]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -102,6 +175,37 @@ export function Dashboard() {
       setError(
         e instanceof Error ? e.message : 'Error cargando base de conocimiento',
       );
+    }
+  }, []);
+
+  const loadContacts = useCallback(async () => {
+    setContactsLoading(true);
+    setContactsError('');
+    try {
+      const list = await api<ContactRow[]>('/contacts');
+      setContacts(list);
+    } catch (e) {
+      setContactsError(
+        e instanceof Error ? e.message : 'Error cargando contactos',
+      );
+    } finally {
+      setContactsLoading(false);
+    }
+  }, []);
+
+  const loadContactDetail = useCallback(async (id: string) => {
+    setContactDetailLoading(true);
+    setContactDetailError('');
+    try {
+      const detail = await api<ContactDetail>(`/contacts/${id}`);
+      setContactDetail(detail);
+    } catch (e) {
+      setContactDetail(null);
+      setContactDetailError(
+        e instanceof Error ? e.message : 'Error cargando contacto',
+      );
+    } finally {
+      setContactDetailLoading(false);
     }
   }, []);
 
@@ -162,6 +266,19 @@ export function Dashboard() {
   useEffect(() => {
     if (tab === 'kb') loadKbAndSettings();
   }, [tab, loadKbAndSettings]);
+
+  useEffect(() => {
+    if (tab === 'contacts') loadContacts();
+  }, [tab, loadContacts]);
+
+  useEffect(() => {
+    if (tab === 'contacts' && selectedContactId) {
+      loadContactDetail(selectedContactId);
+    } else if (!selectedContactId) {
+      setContactDetail(null);
+      setContactDetailError('');
+    }
+  }, [tab, selectedContactId, loadContactDetail]);
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
@@ -260,6 +377,21 @@ export function Dashboard() {
 
   const aiMode = selected?.aiMode || 'AI';
 
+  const navBtn = (id: Tab, label: string) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setTab(id)}
+      className={`text-sm px-3 py-1.5 rounded-lg ${
+        tab === id
+          ? 'bg-brand-50 text-brand-700 font-medium'
+          : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
@@ -267,28 +399,9 @@ export function Dashboard() {
           <h1 className="font-semibold text-lg">WhatsApp Manager</h1>
           <StatusBadge status={status} />
           <nav className="flex items-center gap-1 ml-2">
-            <button
-              type="button"
-              onClick={() => setTab('chats')}
-              className={`text-sm px-3 py-1.5 rounded-lg ${
-                tab === 'chats'
-                  ? 'bg-brand-50 text-brand-700 font-medium'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Chats
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('kb')}
-              className={`text-sm px-3 py-1.5 rounded-lg ${
-                tab === 'kb'
-                  ? 'bg-brand-50 text-brand-700 font-medium'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Base de conocimiento
-            </button>
+            {navBtn('chats', 'Chats')}
+            {navBtn('contacts', 'Contactos')}
+            {navBtn('kb', 'Base de conocimiento')}
           </nav>
         </div>
         <button
@@ -299,7 +412,7 @@ export function Dashboard() {
         </button>
       </header>
 
-      {error && (
+      {error && tab !== 'contacts' && (
         <div className="bg-red-50 text-red-700 text-sm px-4 py-2 border-b border-red-100">
           {error}
         </div>
@@ -405,6 +518,155 @@ export function Dashboard() {
             </form>
           </div>
         </div>
+      ) : tab === 'contacts' ? (
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-[320px_1fr] min-h-0">
+          <aside className="border-r bg-white overflow-y-auto flex flex-col min-h-0">
+            <div className="p-3 border-b space-y-2">
+              <div className="text-xs font-semibold uppercase text-slate-400 tracking-wide">
+                Contactos
+              </div>
+              <input
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="Buscar por nombre o teléfono…"
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+              />
+            </div>
+            {contactsError && (
+              <div className="m-3 rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2 border border-red-100">
+                {contactsError}
+              </div>
+            )}
+            {contactsLoading ? (
+              <p className="px-3 py-4 text-sm text-slate-400">Cargando…</p>
+            ) : filteredContacts.length === 0 ? (
+              <p className="px-3 py-4 text-sm text-slate-400">
+                {contacts.length === 0
+                  ? 'Sin contactos aún'
+                  : 'Ningún contacto coincide con la búsqueda'}
+              </p>
+            ) : (
+              <ul className="flex-1 overflow-y-auto">
+                {filteredContacts.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedContactId(c.id)}
+                      className={`w-full text-left px-3 py-2.5 border-b hover:bg-slate-50 ${
+                        selectedContactId === c.id ? 'bg-brand-50' : ''
+                      }`}
+                    >
+                      <div className="font-medium text-sm truncate">
+                        {c.displayName || c.waJid.split('@')[0]}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {c.phoneE164 || c.waJid}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Visto: {formatDt(c.lastSeenAt)}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+
+          <section className="flex flex-col min-h-0 bg-slate-50 overflow-y-auto">
+            {!selectedContactId ? (
+              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm p-6">
+                Selecciona un contacto
+              </div>
+            ) : contactDetailLoading ? (
+              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm p-6">
+                Cargando detalle…
+              </div>
+            ) : contactDetailError ? (
+              <div className="m-4 rounded-lg bg-red-50 text-red-700 text-sm px-4 py-3 border border-red-100">
+                {contactDetailError}
+              </div>
+            ) : contactDetail ? (
+              <div className="p-4 md:p-6 max-w-2xl w-full mx-auto space-y-4">
+                <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-3">
+                  <h2 className="font-semibold text-lg truncate">
+                    {contactDetail.displayName ||
+                      contactDetail.waJid.split('@')[0]}
+                  </h2>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-xs font-semibold uppercase text-slate-400">
+                        Nombre
+                      </dt>
+                      <dd className="text-slate-800">
+                        {contactDetail.displayName || '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase text-slate-400">
+                        Teléfono
+                      </dt>
+                      <dd className="text-slate-800">
+                        {contactDetail.phoneE164 || '—'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs font-semibold uppercase text-slate-400">
+                        WhatsApp JID
+                      </dt>
+                      <dd className="text-slate-800 break-all">
+                        {contactDetail.waJid}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase text-slate-400">
+                        Primera vez
+                      </dt>
+                      <dd className="text-slate-800">
+                        {formatDt(contactDetail.firstSeenAt)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase text-slate-400">
+                        Última vez
+                      </dt>
+                      <dd className="text-slate-800">
+                        {formatDt(contactDetail.lastSeenAt)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-3">
+                  <h3 className="font-semibold text-base">Conversaciones</h3>
+                  {!contactDetail.conversations?.length ? (
+                    <p className="text-sm text-slate-400">
+                      Sin conversaciones vinculadas
+                    </p>
+                  ) : (
+                    <ul className="divide-y rounded-lg border">
+                      {contactDetail.conversations.map((cv) => (
+                        <li
+                          key={cv.id}
+                          className="px-3 py-2.5 text-sm flex flex-col gap-0.5"
+                        >
+                          <span className="font-medium truncate">
+                            {cv.name || cv.remoteJid.split('@')[0]}
+                          </span>
+                          <span className="text-xs text-slate-500 truncate">
+                            {cv.remoteJid}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Último mensaje: {formatDt(cv.lastMessageAt)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
       ) : status !== 'CONNECTED' ? (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center space-y-4">
@@ -454,7 +716,7 @@ export function Dashboard() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-medium text-sm truncate">
-                        {c.name || c.remoteJid.split('@')[0]}
+                        {convLabel(c)}
                       </div>
                       <span
                         className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
@@ -481,7 +743,7 @@ export function Dashboard() {
                 <div className="border-b bg-white px-4 py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium truncate">
-                      {selected.name || selected.remoteJid.split('@')[0]}
+                      {convLabel(selected)}
                     </div>
                     <div className="text-xs text-slate-400 truncate">
                       {selected.remoteJid}

@@ -27,9 +27,13 @@ export class ContactsService {
       where: { id },
       include: {
         conversations: {
-          select: { id: true },
-          take: 1,
-          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            remoteJid: true,
+            lastMessageAt: true,
+            name: true,
+          },
+          orderBy: { lastMessageAt: 'desc' },
         },
       },
     });
@@ -38,6 +42,7 @@ export class ContactsService {
     return {
       ...rest,
       conversationId: conversations[0]?.id ?? null,
+      conversations,
     };
   }
 

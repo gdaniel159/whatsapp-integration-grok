@@ -49,8 +49,8 @@ model Conversation {
   name          String?
   lastMessageAt DateTime?
   aiMode        AiMode    @default(AI)
-  contactId     String
-  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  contactId     String?
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: Restrict)
   createdAt     DateTime  @default(now())
   messages      Message[]
 
