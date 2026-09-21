@@ -30,6 +30,7 @@ Administrador de bot WhatsApp: API NestJS + frontend Next.js + PostgreSQL. El op
 6. Editar KB / bienvenida en tab **Base de conocimiento**; toggle global **Respuestas automáticas** en el header
 
 ## Decisiones
+- **DEV simulator** (`07-dev-simulator.md`): inbound inject via shared `processIncomingMessage`; `@simulator.local` never calls Baileys.
 - **Baileys** sobre whatsapp-web.js: más simple en contenedor/headless.
 - Auth state en `apps/api/.wa-auth` + status en tabla `WhatsAppSession`.
 - LLM: módulo real en `apps/api/src/llm/` (ver `04-llm-knowledge-base.md`).

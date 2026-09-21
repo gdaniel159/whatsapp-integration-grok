@@ -158,4 +158,17 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(store.size).toBe(1);
   });
 
+  it('creates contact for @simulator.local (phoneE164 null)', async () => {
+    const { prisma, store } = makeMockPrisma();
+    const svc = new ContactsService(prisma as never);
+    const c = await svc.upsertFromWaJid('test-001@simulator.local', {
+      pushName: 'Cliente prueba',
+    });
+    expect(c).not.toBeNull();
+    expect(c!.waJid).toBe('test-001@simulator.local');
+    expect(c!.phoneE164).toBeNull();
+    expect(c!.displayName).toBe('Cliente prueba');
+    expect(store.size).toBe(1);
+  });
+
 });

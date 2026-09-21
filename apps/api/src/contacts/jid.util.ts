@@ -1,10 +1,15 @@
 /**
  * WhatsApp JID helpers for 1:1 chats.
- * Accepts phone users (@s.whatsapp.net) and Linked ID users (@lid).
+ * Accepts phone users (@s.whatsapp.net), Linked ID users (@lid),
+ * and DEV simulator identities (@simulator.local).
  * Strips device suffixes (:XX). Rejects groups/broadcast/status/newsletter.
  */
 
-const PERSONAL_SERVERS = new Set(['s.whatsapp.net', 'lid']);
+const PERSONAL_SERVERS = new Set([
+  's.whatsapp.net',
+  'lid',
+  'simulator.local',
+]);
 
 export function normalizeWaJid(jid: string): string | null {
   if (!jid || typeof jid !== 'string') return null;
@@ -35,7 +40,13 @@ export function isLidJid(jid: string): boolean {
   return !!n && n.endsWith('@lid');
 }
 
-/** Derive +E.164 from phone JID user part when digits-only. Null for @lid. */
+/** DEV-only simulated contact JIDs (`*@simulator.local`). */
+export function isSimulatorJid(jid: string): boolean {
+  const n = normalizeWaJid(jid);
+  return !!n && n.endsWith('@simulator.local');
+}
+
+/** Derive +E.164 from phone JID user part when digits-only. Null for @lid / @simulator.local. */
 export function phoneE164FromJid(jid: string): string | null {
   const normalized = normalizeWaJid(jid);
   if (!normalized || !normalized.endsWith('@s.whatsapp.net')) return null;

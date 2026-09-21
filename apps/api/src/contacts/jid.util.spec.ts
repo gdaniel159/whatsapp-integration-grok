@@ -1,6 +1,7 @@
 import {
   isLidJid,
   isPersonalWaJid,
+  isSimulatorJid,
   normalizeWaJid,
   phoneE164FromJid,
 } from './jid.util';
@@ -31,6 +32,15 @@ describe('jid.util', () => {
       );
     });
 
+    it('accepts @simulator.local and strips device suffix', () => {
+      expect(normalizeWaJid('test-001@simulator.local')).toBe(
+        'test-001@simulator.local',
+      );
+      expect(normalizeWaJid('test-001:3@simulator.local')).toBe(
+        'test-001@simulator.local',
+      );
+    });
+
     it('rejects groups, broadcast, status, newsletter', () => {
       expect(normalizeWaJid('120363@g.us')).toBeNull();
       expect(normalizeWaJid('status@broadcast')).toBeNull();
@@ -41,12 +51,23 @@ describe('jid.util', () => {
   });
 
   describe('isPersonalWaJid', () => {
-    it('true for phone and lid, false for groups', () => {
+    it('true for phone, lid, simulator; false for groups', () => {
       expect(isPersonalWaJid('5199@s.whatsapp.net')).toBe(true);
       expect(isPersonalWaJid('5199:1@s.whatsapp.net')).toBe(true);
       expect(isPersonalWaJid('999@lid')).toBe(true);
       expect(isPersonalWaJid('999:2@lid')).toBe(true);
+      expect(isPersonalWaJid('test-001@simulator.local')).toBe(true);
       expect(isPersonalWaJid('120363@g.us')).toBe(false);
+    });
+  });
+
+  describe('isSimulatorJid', () => {
+    it('detects simulator only', () => {
+      expect(isSimulatorJid('test-001@simulator.local')).toBe(true);
+      expect(isSimulatorJid('test-001:1@simulator.local')).toBe(true);
+      expect(isSimulatorJid('5199@s.whatsapp.net')).toBe(false);
+      expect(isSimulatorJid('999@lid')).toBe(false);
+      expect(isSimulatorJid('120363@g.us')).toBe(false);
     });
   });
 
@@ -54,6 +75,7 @@ describe('jid.util', () => {
     it('detects lid only', () => {
       expect(isLidJid('999@lid')).toBe(true);
       expect(isLidJid('5199@s.whatsapp.net')).toBe(false);
+      expect(isLidJid('test-001@simulator.local')).toBe(false);
       expect(isLidJid('120363@g.us')).toBe(false);
     });
   });
@@ -68,8 +90,9 @@ describe('jid.util', () => {
       );
     });
 
-    it('null for lid or non-personal', () => {
+    it('null for lid, simulator, or non-personal', () => {
       expect(phoneE164FromJid('123456789012345@lid')).toBeNull();
+      expect(phoneE164FromJid('test-001@simulator.local')).toBeNull();
       expect(phoneE164FromJid('120363@g.us')).toBeNull();
     });
   });

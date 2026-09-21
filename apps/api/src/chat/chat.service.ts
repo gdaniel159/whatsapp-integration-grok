@@ -10,7 +10,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ContactsService } from '../contacts/contacts.service';
-import { normalizeWaJid } from '../contacts/jid.util';
+import { AutoReplyService } from '../llm/auto-reply.service';
+import { isSimulatorJid, normalizeWaJid } from '../contacts/jid.util';
+
+export type ProcessIncomingMessageInput = {
+  remoteJid: string;
+  displayName?: string | null;
+  body: string;
+  messageId?: string;
+  timestamp?: Date;
+  rawMeta?: object;
+  /** When true (DEV simulator), await auto-reply so callers can assert OUT synchronously. */
+  awaitAutoReply?: boolean;
+};
 
 @Injectable()
 export class ChatService {
@@ -22,6 +34,8 @@ export class ChatService {
     @Inject(forwardRef(() => WhatsappService))
     private readonly wa: WhatsappService,
     private readonly contacts: ContactsService,
+    @Inject(forwardRef(() => AutoReplyService))
+    private readonly autoReply: AutoReplyService,
   ) {}
 
   listConversations() {
@@ -57,9 +71,14 @@ export class ChatService {
     });
     if (!conv) throw new NotFoundException('Conversación no encontrada');
 
-    const result = await this.wa.sendText(conv.remoteJid, body);
-    const waMessageId = result?.key?.id || undefined;
     const timestamp = new Date();
+    let waMessageId: string | undefined;
+
+    // Simulator conversations never touch Baileys — persist + emit only.
+    if (!isSimulatorJid(conv.remoteJid)) {
+      const result = await this.wa.sendText(conv.remoteJid, body);
+      waMessageId = result?.key?.id || undefined;
+    }
 
     // Ensure Contact stays in sync on outbound (lastSeenAt / name)
     await this.contacts.upsertFromWaJid(conv.remoteJid, {
@@ -119,25 +138,26 @@ export class ChatService {
     return updated;
   }
 
-  async persistIncoming(input: {
-    remoteJid: string;
-    name: string | null;
-    body: string;
-    waMessageId?: string;
-    timestamp: Date;
-    rawMeta?: object;
-  }) {
+  /**
+   * Shared inbound pipeline used by Baileys and the DEV simulator.
+   * Upserts Contact + Conversation, creates Message IN, emits sockets,
+   * then triggers AutoReplyService (async by default; awaitable for DEV).
+   */
+  async processIncomingMessage(
+    input: ProcessIncomingMessageInput,
+  ): Promise<{ conversationId: string; messageId: string } | null> {
+    const timestamp = input.timestamp ?? new Date();
+    const displayName = input.displayName ?? null;
+
     const contact = await this.contacts.upsertFromWaJid(input.remoteJid, {
-      pushName: input.name,
-      seenAt: input.timestamp,
+      pushName: displayName,
+      seenAt: timestamp,
     });
 
     // Groups / non-personal: do not create Contact or Conversation
     if (!contact) {
-      // Surface identity rejection — common regression when Baileys sends @lid
-      // and helpers only accepted @s.whatsapp.net.
       this.logger.warn(
-        `persistIncoming skipped: no Contact for jid=${input.remoteJid}`,
+        `processIncomingMessage skipped: no Contact for jid=${input.remoteJid}`,
       );
       return null;
     }
@@ -147,14 +167,14 @@ export class ChatService {
     const conv = await this.prisma.conversation.upsert({
       where: { remoteJid },
       update: {
-        lastMessageAt: input.timestamp,
+        lastMessageAt: timestamp,
         contactId: contact.id,
-        ...(input.name ? { name: input.name } : {}),
+        ...(displayName ? { name: displayName } : {}),
       },
       create: {
         remoteJid,
-        name: input.name,
-        lastMessageAt: input.timestamp,
+        name: displayName,
+        lastMessageAt: timestamp,
         contactId: contact.id,
       },
       include: {
@@ -174,14 +194,43 @@ export class ChatService {
         conversationId: conv.id,
         direction: 'IN',
         body: input.body,
-        timestamp: input.timestamp,
-        waMessageId: input.waMessageId,
+        timestamp,
+        waMessageId: input.messageId,
         rawMeta: input.rawMeta as Prisma.InputJsonValue | undefined,
       },
     });
 
     this.events.emitMessage(message);
     this.events.emitConversation(conv);
-    return message;
+
+    if (input.awaitAutoReply) {
+      await this.autoReply.handleInbound(conv.id, input.body);
+    } else {
+      this.autoReply.handleInboundAsync(conv.id, input.body);
+    }
+
+    return { conversationId: conv.id, messageId: message.id };
+  }
+
+  /** @deprecated Prefer processIncomingMessage — kept as thin internal alias. */
+  async persistIncoming(input: {
+    remoteJid: string;
+    name: string | null;
+    body: string;
+    waMessageId?: string;
+    timestamp: Date;
+    rawMeta?: object;
+  }) {
+    const result = await this.processIncomingMessage({
+      remoteJid: input.remoteJid,
+      displayName: input.name,
+      body: input.body,
+      messageId: input.waMessageId,
+      timestamp: input.timestamp,
+      rawMeta: input.rawMeta,
+      awaitAutoReply: false,
+    });
+    if (!result) return null;
+    return this.prisma.message.findUnique({ where: { id: result.messageId } });
   }
 }

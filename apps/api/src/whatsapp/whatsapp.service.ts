@@ -20,7 +20,6 @@ import * as fs from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { ChatService } from '../chat/chat.service';
-import { AutoReplyService } from '../llm/auto-reply.service';
 import { WaSessionStatus } from '@prisma/client';
 
 @Injectable()
@@ -37,8 +36,6 @@ export class WhatsappService implements OnModuleInit {
     private readonly config: ConfigService,
     @Inject(forwardRef(() => ChatService))
     private readonly chat: ChatService,
-    @Inject(forwardRef(() => AutoReplyService))
-    private readonly autoReply: AutoReplyService,
   ) {
     const rel = this.config.get<string>('WA_AUTH_DIR') || '.wa-auth';
     this.authDir = path.isAbsolute(rel)
@@ -180,14 +177,14 @@ export class WhatsappService implements OnModuleInit {
       '';
     if (!body) return;
 
-    const name =
+    const displayName =
       msg.pushName || remoteJid.split('@')[0] || null;
 
-    const saved = await this.chat.persistIncoming({
+    const saved = await this.chat.processIncomingMessage({
       remoteJid,
-      name,
+      displayName,
       body,
-      waMessageId: msg.key.id || undefined,
+      messageId: msg.key.id || undefined,
       timestamp: msg.messageTimestamp
         ? new Date(Number(msg.messageTimestamp) * 1000)
         : new Date(),
@@ -198,11 +195,7 @@ export class WhatsappService implements OnModuleInit {
       this.logger.warn(
         `inbound not persisted (jid=${remoteJid}). Check Contact identity rules.`,
       );
-      return;
     }
-
-    // Auto-reply (AI mode): async, do not block inbound handling
-    this.autoReply.handleInboundAsync(saved.conversationId, body);
   }
 
   private async setStatus(status: WaSessionStatus, qr = false) {

@@ -5,10 +5,13 @@ import { NotFoundException } from '@nestjs/common';
  * Manual panel send path must not consult BotSettings.globalAutoReplyEnabled.
  */
 describe('ChatService.sendMessage — unaffected by global kill switch', () => {
-  it('sends via WA + persists without reading BotSettings', async () => {
+  function makeSvc(opts?: {
+    remoteJid?: string;
+    wa?: { sendText: jest.Mock };
+  }) {
     const conv = {
       id: 'conv1',
-      remoteJid: '51991112233@s.whatsapp.net',
+      remoteJid: opts?.remoteJid ?? '51991112233@s.whatsapp.net',
       aiMode: 'AI',
     };
     const createdMsg = {
@@ -37,11 +40,15 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       emitMessage: jest.fn(),
       emitConversation: jest.fn(),
     };
-    const wa = {
+    const wa = opts?.wa ?? {
       sendText: jest.fn(async () => ({ key: { id: 'wa1' } })),
     };
     const contacts = {
       upsertFromWaJid: jest.fn(async () => ({ id: 'c1' })),
+    };
+    const autoReply = {
+      handleInboundAsync: jest.fn(),
+      handleInbound: jest.fn(async () => undefined),
     };
 
     const svc = new ChatService(
@@ -49,7 +56,14 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       events as never,
       wa as never,
       contacts as never,
+      autoReply as never,
     );
+
+    return { svc, prisma, events, wa, contacts, autoReply, createdMsg, conv };
+  }
+
+  it('sends via WA + persists without reading BotSettings', async () => {
+    const { svc, prisma, wa, createdMsg } = makeSvc();
 
     const result = await svc.sendMessage('conv1', 'manual hello');
 
@@ -63,6 +77,26 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
     expect(result).toEqual(createdMsg);
   });
 
+  it('simulator conversation skips wa.sendText but still persists OUT', async () => {
+    const { svc, prisma, wa, events } = makeSvc({
+      remoteJid: 'test-001@simulator.local',
+    });
+
+    await svc.sendMessage('conv1', 'sim reply');
+
+    expect(wa.sendText).not.toHaveBeenCalled();
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          direction: 'OUT',
+          body: 'sim reply',
+        }),
+      }),
+    );
+    expect(events.emitMessage).toHaveBeenCalled();
+    expect(events.emitConversation).toHaveBeenCalled();
+  });
+
   it('throws when conversation missing', async () => {
     const prisma = {
       conversation: { findUnique: jest.fn(async () => null) },
@@ -73,6 +107,10 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       { emitMessage: jest.fn(), emitConversation: jest.fn() } as never,
       { sendText: jest.fn() } as never,
       { upsertFromWaJid: jest.fn() } as never,
+      {
+        handleInboundAsync: jest.fn(),
+        handleInbound: jest.fn(),
+      } as never,
     );
     await expect(svc.sendMessage('missing', 'x')).rejects.toBeInstanceOf(
       NotFoundException,

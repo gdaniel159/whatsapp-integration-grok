@@ -7,6 +7,7 @@ import { ChatModule } from './chat/chat.module';
 import { EventsModule } from './events/events.module';
 import { LlmModule } from './llm/llm.module';
 import { ContactsModule } from './contacts/contacts.module';
+import { DevModule } from './dev/dev.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ContactsModule } from './contacts/contacts.module';
     WhatsappModule,
     ChatModule,
     LlmModule,
+    DevModule,
   ],
 })
 export class AppModule {}

@@ -8,7 +8,9 @@ import { StatusBadge } from './StatusBadge';
 
 type WaStatus = 'DISCONNECTED' | 'QR' | 'CONNECTED';
 type AiMode = 'AI' | 'MANUAL';
-type Tab = 'chats' | 'kb' | 'contacts';
+type Tab = 'chats' | 'kb' | 'contacts' | 'simulator';
+
+const isDev = process.env.NODE_ENV !== 'production';
 
 interface ContactSummary {
   id: string;
@@ -133,6 +135,14 @@ export function Dashboard() {
   );
   const [contactDetailLoading, setContactDetailLoading] = useState(false);
   const [contactDetailError, setContactDetailError] = useState('');
+
+  // DEV simulator
+  const [simDisplayName, setSimDisplayName] = useState('Cliente prueba');
+  const [simContactKey, setSimContactKey] = useState('test-001');
+  const [simBody, setSimBody] = useState('Hola');
+  const [simSending, setSimSending] = useState(false);
+  const [simOk, setSimOk] = useState('');
+  const [simError, setSimError] = useState('');
 
   const selected = useMemo(
     () => conversations.find((c) => c.id === selectedId) || null,
@@ -402,6 +412,41 @@ export function Dashboard() {
     }
   }
 
+  async function simulateInbound(e: React.FormEvent) {
+    e.preventDefault();
+    if (!simContactKey.trim() || !simBody.trim()) return;
+    setSimSending(true);
+    setSimError('');
+    setSimOk('');
+    try {
+      const res = await api<{
+        contactId: string;
+        conversationId: string;
+        messageId: string;
+        remoteJid: string;
+      }>('/dev/simulate-inbound', {
+        method: 'POST',
+        body: JSON.stringify({
+          contactKey: simContactKey.trim(),
+          displayName: simDisplayName.trim() || undefined,
+          body: simBody.trim(),
+        }),
+      });
+      setSimOk(
+        `OK — ${res.remoteJid} · conversación ${res.conversationId.slice(0, 8)}…`,
+      );
+      await loadConversations();
+      setSelectedId(res.conversationId);
+      setTab('chats');
+    } catch (err) {
+      setSimError(
+        err instanceof Error ? err.message : 'No se pudo simular el mensaje',
+      );
+    } finally {
+      setSimSending(false);
+    }
+  }
+
   function logout() {
     clearToken();
     router.replace('/login');
@@ -516,6 +561,7 @@ export function Dashboard() {
             {navBtn('chats', 'Chats')}
             {navBtn('contacts', 'Contactos')}
             {navBtn('kb', 'Base de conocimiento')}
+            {isDev ? navBtn('simulator', 'Simulador') : null}
           </nav>
         </div>
         <button
@@ -532,7 +578,81 @@ export function Dashboard() {
         </div>
       )}
 
-      {tab === 'kb' ? (
+      {tab === 'simulator' && isDev ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+          <div className="max-w-lg mx-auto">
+            <form
+              onSubmit={simulateInbound}
+              className="bg-white rounded-2xl border shadow-sm p-5 space-y-4"
+            >
+              <div>
+                <h2 className="font-semibold text-lg">Simulador de mensajes</h2>
+                <p className="text-sm text-slate-500">
+                  Inyecta un mensaje entrante por el mismo pipeline que Baileys
+                  (solo DEV). No envía nada a WhatsApp real.
+                </p>
+              </div>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">
+                  Contacto
+                </span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  value={simDisplayName}
+                  onChange={(e) => setSimDisplayName(e.target.value)}
+                  placeholder="Cliente prueba"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">
+                  Identificador
+                </span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  value={simContactKey}
+                  onChange={(e) => setSimContactKey(e.target.value)}
+                  placeholder="test-001"
+                />
+                <span className="text-xs text-slate-400">
+                  JID resultante: {(simContactKey.replace(/[^a-zA-Z0-9-]/g, '') || '…')}@simulator.local
+                </span>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">
+                  Mensaje
+                </span>
+                <textarea
+                  className="w-full min-h-[100px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  value={simBody}
+                  onChange={(e) => setSimBody(e.target.value)}
+                  placeholder="Hola"
+                />
+              </label>
+              {simError && (
+                <div className="rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2 border border-red-100">
+                  {simError}
+                </div>
+              )}
+              {simOk && (
+                <div className="rounded-lg bg-emerald-50 text-emerald-700 text-sm px-3 py-2 border border-emerald-100">
+                  {simOk}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={
+                    simSending || !simContactKey.trim() || !simBody.trim()
+                  }
+                  className="rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-medium"
+                >
+                  {simSending ? 'Simulando…' : 'Simular mensaje'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : tab === 'kb' ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
           <div className="max-w-3xl mx-auto space-y-6">
             <form
@@ -781,7 +901,7 @@ export function Dashboard() {
             ) : null}
           </section>
         </div>
-      ) : status !== 'CONNECTED' ? (
+      ) : status !== 'CONNECTED' && !isDev ? (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center space-y-4">
             <h2 className="text-xl font-semibold">Conectar WhatsApp</h2>
