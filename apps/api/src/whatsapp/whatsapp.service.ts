@@ -194,7 +194,12 @@ export class WhatsappService implements OnModuleInit {
       rawMeta: msg as unknown as object,
     });
 
-    if (!saved) return;
+    if (!saved) {
+      this.logger.warn(
+        `inbound not persisted (jid=${remoteJid}). Check Contact identity rules.`,
+      );
+      return;
+    }
 
     // Auto-reply (AI mode): async, do not block inbound handling
     this.autoReply.handleInboundAsync(saved.conversationId, body);

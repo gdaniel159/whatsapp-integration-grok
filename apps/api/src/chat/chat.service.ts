@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   Inject,
   forwardRef,
@@ -13,6 +14,8 @@ import { normalizeWaJid } from '../contacts/jid.util';
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventsGateway,
@@ -131,6 +134,11 @@ export class ChatService {
 
     // Groups / non-personal: do not create Contact or Conversation
     if (!contact) {
+      // Surface identity rejection — common regression when Baileys sends @lid
+      // and helpers only accepted @s.whatsapp.net.
+      this.logger.warn(
+        `persistIncoming skipped: no Contact for jid=${input.remoteJid}`,
+      );
       return null;
     }
 

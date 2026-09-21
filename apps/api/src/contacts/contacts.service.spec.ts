@@ -135,4 +135,27 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(updated!.displayName).toBe('Cliente VIP');
     expect(updated!.profileName).toBe('Ana Nueva');
   });
+
+  it('creates contact for @lid personal JID (no phoneE164)', async () => {
+    const { prisma, store } = makeMockPrisma();
+    const svc = new ContactsService(prisma as never);
+    const c = await svc.upsertFromWaJid('123456789012345@lid', {
+      pushName: 'LidUser',
+    });
+    expect(c).not.toBeNull();
+    expect(c!.waJid).toBe('123456789012345@lid');
+    expect(c!.phoneE164).toBeNull();
+    expect(c!.displayName).toBe('LidUser');
+    expect(store.size).toBe(1);
+  });
+
+  it('device suffix on @lid is same contact', async () => {
+    const { prisma, store } = makeMockPrisma();
+    const svc = new ContactsService(prisma as never);
+    const a = await svc.upsertFromWaJid('123456789012345@lid');
+    const b = await svc.upsertFromWaJid('123456789012345:9@lid');
+    expect(a!.id).toBe(b!.id);
+    expect(store.size).toBe(1);
+  });
+
 });

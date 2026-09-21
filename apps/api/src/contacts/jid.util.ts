@@ -1,7 +1,10 @@
 /**
- * WhatsApp JID helpers — personal chats only (@s.whatsapp.net).
- * Strips device suffixes (:XX) and rejects groups/broadcast/status.
+ * WhatsApp JID helpers for 1:1 chats.
+ * Accepts phone users (@s.whatsapp.net) and Linked ID users (@lid).
+ * Strips device suffixes (:XX). Rejects groups/broadcast/status/newsletter.
  */
+
+const PERSONAL_SERVERS = new Set(['s.whatsapp.net', 'lid']);
 
 export function normalizeWaJid(jid: string): string | null {
   if (!jid || typeof jid !== 'string') return null;
@@ -14,26 +17,28 @@ export function normalizeWaJid(jid: string): string | null {
   const userPart = trimmed.slice(0, at);
   const server = trimmed.slice(at + 1).toLowerCase();
 
-  if (server !== 's.whatsapp.net') return null;
+  if (!PERSONAL_SERVERS.has(server)) return null;
 
-  // Strip device suffix: 51999:12@s.whatsapp.net → 51999@s.whatsapp.net
-  const bareUser = userPart.includes(':')
-    ? userPart.split(':')[0]
-    : userPart;
-
+  // Strip device suffix: user:12@server → user@server
+  const bareUser = userPart.includes(':') ? userPart.split(':')[0] : userPart;
   if (!bareUser) return null;
 
-  return `${bareUser}@s.whatsapp.net`;
+  return `${bareUser}@${server}`;
 }
 
 export function isPersonalWaJid(jid: string): boolean {
   return normalizeWaJid(jid) !== null;
 }
 
-/** Derive +E.164 from personal JID user part when it is digits-only. */
+export function isLidJid(jid: string): boolean {
+  const n = normalizeWaJid(jid);
+  return !!n && n.endsWith('@lid');
+}
+
+/** Derive +E.164 from phone JID user part when digits-only. Null for @lid. */
 export function phoneE164FromJid(jid: string): string | null {
   const normalized = normalizeWaJid(jid);
-  if (!normalized) return null;
+  if (!normalized || !normalized.endsWith('@s.whatsapp.net')) return null;
   const user = normalized.split('@')[0];
   if (!/^\d+$/.test(user)) return null;
   return `+${user}`;

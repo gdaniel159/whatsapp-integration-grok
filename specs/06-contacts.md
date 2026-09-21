@@ -85,10 +85,10 @@ Sin cambio de esquema. Sigue colgando solo de `Conversation`. El contacto se obt
 
 1. **Clave primaria de negocio:** `Contact.waJid` único.
 2. **Normalización de JID (personal):**
-   - Usar el JID bare de chat 1:1 de Baileys (`…@s.whatsapp.net`).
+   - Usar el JID bare de chat 1:1 de Baileys (`…@s.whatsapp.net` **o** `…@lid`). Baileys puede entregar Linked ID (`@lid`) en lugar del JID telefónico; ambos son chats personales válidos.
    - Strip de sufijos de dispositivo si aparecen (`:XX` en el user part) antes de persistir.
    - Ignorar / no crear Contact para `@g.us`, `@broadcast`, status, etc.
-3. **`phoneE164`:** si el user part es solo dígitos, prefijar `+` y guardar; si no se puede parsear, dejar `null` (no inventar país).
+3. **`phoneE164`:** solo para `@s.whatsapp.net` con user part numérico (`+…`). Para `@lid` dejar `null` (no inventar teléfono).
 4. **Upsert:** en cada inbound/outbound relevante:
    - `upsert Contact` por `waJid`
    - `upsert Conversation` por `remoteJid` asegurando `contactId`
@@ -149,7 +149,7 @@ Sin PATCH rico de ficha CRM en esta iteración (opcional: PATCH solo `displayNam
 ## Decisiones principales (resumen)
 1. **Contact nuevo**, no reutilizar Conversation como persona.
 2. Relación **Contact 1 — N Conversation** (MVP operativo 1:1).
-3. **Deduplicación** por `waJid` normalizado; `phoneE164` auxiliar único nullable.
+3. **Deduplicación** por `waJid` normalizado (`@s.whatsapp.net` o `@lid`); `phoneE164` auxiliar único nullable.
 4. Campos CRM (stage, owner, tags…) **aplazados**.
 5. `aiMode` permanece en Conversation.
 
