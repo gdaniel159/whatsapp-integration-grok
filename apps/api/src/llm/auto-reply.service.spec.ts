@@ -6,6 +6,10 @@ const DEFAULT_SETTINGS = {
   firstAction: 'CTA',
   hfModel: null,
   globalAutoReplyEnabled: false,
+  businessName: 'Nova Servicios',
+  timezone: 'America/Lima',
+  businessHoursStart: '09:00',
+  businessHoursEnd: '18:00',
   updatedAt: new Date(),
 };
 
@@ -17,7 +21,7 @@ function makeService(opts: {
   const sendMessage = jest.fn(async () => ({ id: 'out1' }));
   const chatCompletion = jest.fn(async () => 'AI reply text');
   const fallbackReply = jest.fn(() => 'fallback');
-  const buildSystemPrompt = jest.fn((kb: string) => `sys:${kb}`);
+  const buildSystemPrompt = jest.fn((kb: string, _profile?: unknown) => `sys:${kb}`);
 
   const settings = {
     ...DEFAULT_SETTINGS,
@@ -98,20 +102,22 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     prisma.botSettings.upsert.mockResolvedValue({
       ...DEFAULT_SETTINGS,
       globalAutoReplyEnabled: true,
-      welcomeMessage: 'Bienvenido',
+      welcomeMessage: 'Bienvenido a {businessName}',
       firstAction: 'Elige 1',
+      businessName: 'Nova Servicios',
     });
 
     await svc.handleInbound('conv1', 'hola');
 
     expect(llm.chatCompletion).toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalled();
-    // welcome + AI reply
+    // welcome + AI reply (CTA/firstAction must NOT be concatenated)
     const bodies = sendMessage.mock.calls.map(
       (c: unknown[]) => c[1] as string,
     );
     expect(bodies.length).toBeGreaterThanOrEqual(2);
-    expect(bodies[0]).toContain('Bienvenido');
+    expect(bodies[0]).toContain('Bienvenido a Nova Servicios');
+    expect(bodies[0]).not.toContain('Elige 1');
     expect(bodies).toContain('AI reply text');
   });
 

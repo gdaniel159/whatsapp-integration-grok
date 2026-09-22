@@ -126,7 +126,22 @@ type CommercialAnalysisDebug = {
     openNow: boolean;
     localTime?: string;
   };
+  validationStatus?: 'VALID' | 'INVALID' | null;
+  diagnostics?: {
+    code: string;
+    message: string;
+    fieldErrors: Array<{ path: string; message: string; code: string }>;
+    rawPreview?: string;
+  } | null;
 };
+
+type ConversationalDebug = {
+  status: 'OK' | 'SKIPPED' | 'FAILED';
+  detail?: string;
+  welcomeSent?: boolean;
+  aiReplySent?: boolean;
+};
+
 
 
 interface ContactRow {
@@ -214,6 +229,8 @@ export function Dashboard() {
   const [simAnalysis, setSimAnalysis] = useState<CommercialAnalysisDebug | null>(
     null,
   );
+  const [simConversational, setSimConversational] =
+    useState<ConversationalDebug | null>(null);
 
   // Contacts
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -640,12 +657,14 @@ export function Dashboard() {
     setSimOk('');
     try {
       setSimAnalysis(null);
+      setSimConversational(null);
       const res = await api<{
         contactId: string;
         conversationId: string;
         messageId: string;
         remoteJid: string;
         commercialAnalysis?: CommercialAnalysisDebug | null;
+        conversational?: ConversationalDebug | null;
       }>('/dev/simulate-inbound', {
         method: 'POST',
         body: JSON.stringify({
@@ -657,6 +676,7 @@ export function Dashboard() {
       const okMsg = `OK — ${res.remoteJid} · conversación ${res.conversationId.slice(0, 8)}…`;
       setSimOk(okMsg);
       setSimAnalysis(res.commercialAnalysis ?? null);
+      setSimConversational(res.conversational ?? null);
       toast.success('Mensaje simulado', { description: okMsg });
       await loadConversations();
       setSelectedId(res.conversationId);
@@ -861,119 +881,164 @@ export function Dashboard() {
                       {simOk}
                     </div>
                   )}
-                  {simAnalysis && simAnalysis.outcome === 'DISABLED' ? (
-                    <div className="rounded-lg border bg-muted/40 text-sm px-3 py-2 text-muted-foreground">
-                      Análisis comercial desactivado (modo OFF)
-                    </div>
-                  ) : null}
-                  {simAnalysis && simAnalysis.outcome !== 'DISABLED' ? (
-                    <div className="rounded-lg border bg-card text-sm p-3 space-y-1.5">
-                      <div className="font-medium">Análisis comercial (DEV)</div>
-                      <div>
-                        <span className="text-muted-foreground">Intent:</span>{' '}
-                        {simAnalysis.decision?.intent ?? '—'}
+                  {(simConversational || simAnalysis) ? (
+                    <div className="rounded-lg border bg-card text-sm p-3 space-y-2">
+                      <div className="font-medium">Resultado del simulador (DEV)</div>
+                      <div className="flex flex-wrap gap-3">
+                        <div>
+                          <span className="text-muted-foreground">Conversacional:</span>{' '}
+                          {simConversational?.status === 'OK'
+                            ? '✓'
+                            : simConversational?.status === 'FAILED'
+                              ? '✕'
+                              : simConversational?.status === 'SKIPPED'
+                                ? '–'
+                                : '✓'}
+                          {simConversational?.detail
+                            ? ` (${simConversational.detail})`
+                            : ''}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Comercial:</span>{' '}
+                          {simAnalysis?.outcome === 'DISABLED'
+                            ? '– (OFF)'
+                            : simAnalysis?.validationStatus === 'VALID' ||
+                                (simAnalysis?.decision &&
+                                  simAnalysis.validationStatus !== 'INVALID')
+                              ? '✓ VALID'
+                              : '✕ INVALID'}
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Estado sugerido:
-                        </span>{' '}
-                        {simAnalysis.decision?.suggestedStatus ?? '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Estado aplicado:
-                        </span>{' '}
-                        {simAnalysis.appliedStatus ?? '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Confianza:</span>{' '}
-                        {simAnalysis.decision
-                          ? `${Math.round(simAnalysis.decision.confidence * 100)}%`
-                          : '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Tags sugeridos:
-                        </span>{' '}
-                        {(simAnalysis.decision?.suggestedTags ?? []).join(', ') ||
-                          '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Tags aplicados:
-                        </span>{' '}
-                        {(simAnalysis.appliedTags ?? []).join(', ') || '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Decisión:</span>{' '}
-                        {simAnalysis.outcome === 'APPLIED'
-                          ? 'Aplicada'
-                          : simAnalysis.outcome === 'OBSERVED'
-                            ? 'Observada'
-                            : simAnalysis.outcome === 'REJECTED'
-                              ? 'Rechazada'
-                              : 'Sin cambios'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Razón:</span>{' '}
-                        {simAnalysis.reason || '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Requiere atención humana:
-                        </span>{' '}
-                        {simAnalysis.decision?.requiresHumanAttention
-                          ? 'Sí'
-                          : 'No'}
-                        {simAnalysis.decision?.handoffReason
-                          ? ` (${simAnalysis.decision.handoffReason})`
-                          : ''}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Handoff aplicado:
-                        </span>{' '}
-                        {simAnalysis.appliedHumanHandoff ? 'Sí' : 'No'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Negocio:</span>{' '}
-                        {simAnalysis.businessHours?.businessName?.trim()
-                          ? simAnalysis.businessHours.businessName
-                          : '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Hora local del negocio:
-                        </span>{' '}
-                        {simAnalysis.businessHours?.localTime
-                          ? `${simAnalysis.businessHours.localTime} (${simAnalysis.businessHours.timezone})`
-                          : '—'}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Dentro de horario:
-                        </span>{' '}
-                        {simAnalysis.businessHours
-                          ? simAnalysis.businessHours.openNow
-                            ? 'Sí'
-                            : 'No'
-                          : '—'}
-                        {simAnalysis.businessHours
-                          ? ` (${simAnalysis.businessHours.start}–${simAnalysis.businessHours.end})`
-                          : ''}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">
-                          Handoff humano:
-                        </span>{' '}
-                        {simAnalysis.decision?.requiresHumanAttention ||
-                        simAnalysis.appliedHumanHandoff
-                          ? 'Sí'
-                          : 'No'}
-                        {simAnalysis.decision?.handoffReason
-                          ? ` — ${simAnalysis.decision.handoffReason}`
-                          : ''}
-                      </div>
+                      {simAnalysis?.outcome === 'DISABLED' ? (
+                        <div className="text-muted-foreground">
+                          Análisis comercial desactivado (modo OFF)
+                        </div>
+                      ) : null}
+                      {simAnalysis &&
+                      simAnalysis.outcome !== 'DISABLED' &&
+                      (simAnalysis.validationStatus === 'INVALID' ||
+                        !simAnalysis.decision) ? (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 space-y-1">
+                          <div className="font-medium text-destructive">
+                            {simAnalysis.diagnostics?.message ||
+                              simAnalysis.reason ||
+                              'CommercialDecision inválida'}
+                          </div>
+                          {simAnalysis.diagnostics?.code ? (
+                            <div className="text-xs text-muted-foreground">
+                              Código: {simAnalysis.diagnostics.code}
+                            </div>
+                          ) : null}
+                          {(simAnalysis.diagnostics?.fieldErrors?.length ?? 0) >
+                          0 ? (
+                            <ul className="text-xs list-disc pl-4">
+                              {simAnalysis.diagnostics!.fieldErrors
+                                .slice(0, 8)
+                                .map((err, i) => (
+                                  <li key={`${err.path}-${i}`}>
+                                    <span className="font-mono">{err.path}</span>
+                                    : {err.message}
+                                  </li>
+                                ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {simAnalysis && simAnalysis.outcome !== 'DISABLED' ? (
+                        <div className="space-y-1.5">
+                          <div>
+                            <span className="text-muted-foreground">Intent:</span>{' '}
+                            {simAnalysis.decision?.intent ?? '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Estado sugerido:
+                            </span>{' '}
+                            {simAnalysis.decision?.suggestedStatus ?? '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Estado aplicado:
+                            </span>{' '}
+                            {simAnalysis.appliedStatus ?? '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Confianza:</span>{' '}
+                            {simAnalysis.decision
+                              ? `${Math.round(simAnalysis.decision.confidence * 100)}%`
+                              : '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Tags sugeridos:
+                            </span>{' '}
+                            {(simAnalysis.decision?.suggestedTags ?? []).join(
+                              ', ',
+                            ) || '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Tags aplicados:
+                            </span>{' '}
+                            {(simAnalysis.appliedTags ?? []).join(', ') || '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Decisión:</span>{' '}
+                            {simAnalysis.outcome === 'APPLIED'
+                              ? 'Aplicada'
+                              : simAnalysis.outcome === 'OBSERVED'
+                                ? 'Observada'
+                                : simAnalysis.outcome === 'REJECTED'
+                                  ? 'Rechazada'
+                                  : 'Sin cambios'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Razón:</span>{' '}
+                            {simAnalysis.reason || '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Negocio:
+                            </span>{' '}
+                            {simAnalysis.businessHours?.businessName?.trim()
+                              ? simAnalysis.businessHours.businessName
+                              : '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Hora local:
+                            </span>{' '}
+                            {simAnalysis.businessHours?.localTime
+                              ? `${simAnalysis.businessHours.localTime} (${simAnalysis.businessHours.timezone})`
+                              : '—'}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Dentro de horario:
+                            </span>{' '}
+                            {simAnalysis.businessHours
+                              ? simAnalysis.businessHours.openNow
+                                ? 'Sí'
+                                : 'No'
+                              : '—'}
+                            {simAnalysis.businessHours
+                              ? ` (${simAnalysis.businessHours.start}–${simAnalysis.businessHours.end})`
+                              : ''}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Handoff humano:
+                            </span>{' '}
+                            {simAnalysis.decision?.requiresHumanAttention ||
+                            simAnalysis.appliedHumanHandoff
+                              ? 'Sí'
+                              : 'No'}
+                            {simAnalysis.decision?.handoffReason
+                              ? ` — ${simAnalysis.decision.handoffReason}`
+                              : ''}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </form>
@@ -1033,7 +1098,7 @@ export function Dashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Configuración → Negocio</CardTitle>
+                <CardTitle>Configuración del negocio</CardTitle>
                 <CardDescription>
                   Perfil del negocio (singleton). Define nombre, zona horaria y
                   horario comercial usados por handoff y el simulador. No es
@@ -1112,7 +1177,7 @@ export function Dashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Automatización comercial</CardTitle>
+                <CardTitle>Automatización</CardTitle>
                 <CardDescription>
                   Análisis comercial con DeepSeek, independiente de las respuestas
                   automáticas. OFF no analiza; OBSERVE analiza sin escribir; APPLY
@@ -1153,10 +1218,11 @@ export function Dashboard() {
 
 <Card>
               <CardHeader>
-                <CardTitle>Bienvenida y primera acción</CardTitle>
+                <CardTitle>Asistente</CardTitle>
                 <CardDescription>
-                  Se envían en el primer mensaje entrante de cada conversación
-                  (modo IA).
+                  Mensaje de bienvenida del bot (solo en la primera conversación
+                  con IA activa). No reemplaza la respuesta a la pregunta del
+                  cliente.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1173,26 +1239,9 @@ export function Dashboard() {
                       value={welcomeMessage}
                       onChange={(e) => setWelcomeMessage(e.target.value)}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="first-action">Primera acción / CTA</Label>
-                    <Textarea
-                      id="first-action"
-                      className="min-h-[72px]"
-                      value={firstAction}
-                      onChange={(e) => setFirstAction(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="hf-model">Modelo HF (opcional)</Label>
-                    <Input
-                      id="hf-model"
-                      value={hfModel}
-                      onChange={(e) => setHfModel(e.target.value)}
-                      placeholder="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-                    />
                     <p className="text-xs text-muted-foreground">
-                      Vacío = usa HF_MODEL del entorno.
+                      Puedes usar <code>{'{businessName}'}</code> para insertar
+                      el nombre del negocio.
                     </p>
                   </div>
                 </form>
@@ -1209,7 +1258,46 @@ export function Dashboard() {
                   disabled={settingsSaving}
                   className="bg-brand-600 hover:bg-brand-700 text-white"
                 >
-                  {settingsSaving ? 'Guardando…' : 'Guardar ajustes'}
+                  {settingsSaving ? 'Guardando…' : 'Guardar asistente'}
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Modelo HF</CardTitle>
+                <CardDescription>
+                  Modelo de Hugging Face para respuestas conversacionales y
+                  análisis comercial (opcional).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Label htmlFor="hf-model">Modelo HF (opcional)</Label>
+                  <Input
+                    id="hf-model"
+                    value={hfModel}
+                    onChange={(e) => setHfModel(e.target.value)}
+                    placeholder="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Vacío = usa HF_MODEL del entorno.
+                  </p>
+                </div>
+              </CardContent>
+              <CardFooter className="justify-end">
+                <Button
+                  type="button"
+                  disabled={settingsSaving}
+                  onClick={() => {
+                    const form = document.getElementById(
+                      'settings-form',
+                    ) as HTMLFormElement | null;
+                    form?.requestSubmit();
+                  }}
+                  className="bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  {settingsSaving ? 'Guardando…' : 'Guardar modelo'}
                 </Button>
               </CardFooter>
             </Card>

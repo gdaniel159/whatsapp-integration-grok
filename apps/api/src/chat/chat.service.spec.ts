@@ -48,7 +48,7 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
     };
     const autoReply = {
       handleInboundAsync: jest.fn(),
-      handleInbound: jest.fn(async () => undefined),
+      handleInbound: jest.fn(async () => ({ status: 'OK', welcomeSent: false, aiReplySent: true })),
     };
 
     const svc = new ChatService(
@@ -122,7 +122,7 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       { upsertFromWaJid: jest.fn() } as never,
       {
         handleInboundAsync: jest.fn(),
-        handleInbound: jest.fn(),
+        handleInbound: jest.fn(async () => ({ status: 'OK', welcomeSent: false, aiReplySent: true })),
       } as never,
       {
         handleInboundAsync: jest.fn(),

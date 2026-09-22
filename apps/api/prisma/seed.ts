@@ -1,31 +1,18 @@
 import { PrismaClient } from '@prisma/client';
+import {
+  DEMO_BUSINESS_NAME,
+  DEMO_BUSINESS_PROFILE,
+  DEMO_FIRST_ACTION_UNUSED,
+  DEMO_KB_CONTENT,
+  DEMO_WELCOME_MESSAGE,
+} from '../src/llm/demo-nova-servicios';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-const DEFAULT_WELCOME =
-  '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.';
-
-const DEFAULT_FIRST_ACTION =
-  'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.';
-
-const DEFAULT_KB = `# Base de conocimiento (ejemplo)
-
-## Negocio
-Somos un negocio genérico de ejemplo. Edita este texto con la información real de tu empresa.
-
-## Productos / Servicios
-- Producto A: descripción breve, precio referencial
-- Servicio B: descripción breve
-
-## Horarios
-Lunes a viernes: 9:00 – 18:00
-Sábados: 9:00 – 13:00
-Domingos: cerrado
-
-## Contacto
-Responde dudas frecuentes aquí. Si no sabes la respuesta, indica que un asesor humano continuará la conversación.
-`;
+const DEFAULT_WELCOME = DEMO_WELCOME_MESSAGE;
+const DEFAULT_FIRST_ACTION = DEMO_FIRST_ACTION_UNUSED;
+const DEFAULT_KB = DEMO_KB_CONTENT;
 
 async function main() {
   const passwordHash = await bcrypt.hash('Admin123!', 10);
@@ -48,9 +35,10 @@ async function main() {
     },
   });
 
+  // DEMO CHATBOT DATA (Nova Servicios) — separate from pipeline mocks in seed-dev.
   await prisma.knowledgeBase.upsert({
     where: { id: 'default' },
-    update: {},
+    update: { content: DEFAULT_KB },
     create: {
       id: 'default',
       content: DEFAULT_KB,
@@ -59,7 +47,14 @@ async function main() {
 
   await prisma.botSettings.upsert({
     where: { id: 'default' },
-    update: {},
+    update: {
+      welcomeMessage: DEFAULT_WELCOME,
+      firstAction: DEFAULT_FIRST_ACTION,
+      businessName: DEMO_BUSINESS_PROFILE.businessName,
+      timezone: DEMO_BUSINESS_PROFILE.timezone,
+      businessHoursStart: DEMO_BUSINESS_PROFILE.businessHoursStart,
+      businessHoursEnd: DEMO_BUSINESS_PROFILE.businessHoursEnd,
+    },
     create: {
       id: 'default',
       welcomeMessage: DEFAULT_WELCOME,
@@ -67,15 +62,16 @@ async function main() {
       hfModel: null,
       globalAutoReplyEnabled: false,
       commercialAutomationMode: 'OFF',
-      businessName: '',
-      timezone: 'UTC',
-      businessHoursStart: '09:00',
-      businessHoursEnd: '17:00',
+      businessName: DEMO_BUSINESS_PROFILE.businessName,
+      timezone: DEMO_BUSINESS_PROFILE.timezone,
+      businessHoursStart: DEMO_BUSINESS_PROFILE.businessHoursStart,
+      businessHoursEnd: DEMO_BUSINESS_PROFILE.businessHoursEnd,
     },
   });
 
   console.log('Seed OK — user:', admin.username, '(password: Admin123!)');
-  console.log('Seed OK — KnowledgeBase + BotSettings defaults');
+  console.log('Seed OK — Nova Servicios DEMO KB + BusinessProfile + welcome');
+console.log('  business:', DEMO_BUSINESS_NAME);
 }
 
 main()

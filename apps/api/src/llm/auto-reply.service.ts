@@ -1,17 +1,27 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
-import { LlmService } from './llm.service';
+import { LlmService, renderWelcomeMessage } from './llm.service';
 import {
   buildHandoffReplyGuidance,
   businessProfileFromSettings,
 } from './business-hours';
+import {
+  DEMO_WELCOME_MESSAGE,
+  DEMO_FIRST_ACTION_UNUSED,
+} from './demo-nova-servicios';
 
-const DEFAULT_WELCOME =
-  '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.';
+const DEFAULT_WELCOME = DEMO_WELCOME_MESSAGE;
 
-const DEFAULT_FIRST_ACTION =
-  'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.';
+/** Deprecated in conversational flow — kept for DB/API compatibility only. */
+const DEFAULT_FIRST_ACTION = DEMO_FIRST_ACTION_UNUSED;
+
+export type AutoReplyResult = {
+  status: 'OK' | 'SKIPPED' | 'FAILED';
+  detail?: string;
+  welcomeSent: boolean;
+  aiReplySent: boolean;
+};
 
 @Injectable()
 export class AutoReplyService {
@@ -46,10 +56,15 @@ export class AutoReplyService {
     conversationId: string,
     userBody: string,
     opts?: { requiresHumanAttention?: boolean },
-  ) {
+  ): Promise<AutoReplyResult> {
     if (this.busy.has(conversationId)) {
       this.logger.debug(`skip auto-reply (busy) ${conversationId}`);
-      return;
+      return {
+        status: 'SKIPPED',
+        detail: 'busy',
+        welcomeSent: false,
+        aiReplySent: false,
+      };
     }
     this.busy.add(conversationId);
     try {
@@ -59,54 +74,86 @@ export class AutoReplyService {
         this.logger.debug(
           `skip auto-reply (global OFF) ${conversationId}`,
         );
-        return;
+        return {
+          status: 'SKIPPED',
+          detail: 'global_off',
+          welcomeSent: false,
+          aiReplySent: false,
+        };
       }
 
       const conv = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
       });
-      if (!conv) return;
+      if (!conv) {
+        return {
+          status: 'SKIPPED',
+          detail: 'missing_conversation',
+          welcomeSent: false,
+          aiReplySent: false,
+        };
+      }
       if (conv.aiMode !== 'AI') {
         this.logger.debug(`skip auto-reply (MANUAL) ${conversationId}`);
-        return;
+        return {
+          status: 'SKIPPED',
+          detail: 'manual_mode',
+          welcomeSent: false,
+          aiReplySent: false,
+        };
       }
 
       const inboundCount = await this.prisma.message.count({
         where: { conversationId, direction: 'IN' },
       });
 
+      let welcomeSent = false;
       if (inboundCount === 1) {
-        await this.sendWelcome(conversationId, settings);
+        welcomeSent = await this.sendWelcome(conversationId, settings);
       }
 
-      await this.sendAiReply(
+      const aiReplySent = await this.sendAiReply(
         conversationId,
         userBody,
         opts?.requiresHumanAttention === true,
         settings,
       );
+
+      return {
+        status: 'OK',
+        welcomeSent,
+        aiReplySent,
+      };
     } finally {
       this.busy.delete(conversationId);
     }
   }
 
+  /**
+   * Single welcomeMessage with `{businessName}` template.
+   * firstAction/CTA is intentionally NOT concatenated anymore.
+   */
   private async sendWelcome(
     conversationId: string,
     settings: {
       welcomeMessage: string;
-      firstAction: string;
+      businessName?: string;
     },
-  ) {
-    const text = [settings.welcomeMessage.trim(), settings.firstAction.trim()]
-      .filter(Boolean)
-      .join('\n\n');
-    if (!text) return;
+  ): Promise<boolean> {
+    const text = renderWelcomeMessage(
+      settings.welcomeMessage,
+      settings.businessName ?? '',
+    );
+    // Never send empty or unresolved admin placeholders to customers.
+    if (!text || text.includes('{businessName}')) return false;
     try {
       await this.chat.sendMessage(conversationId, text);
+      return true;
     } catch (e) {
       this.logger.warn(
         `welcome send failed: ${e instanceof Error ? e.message : e}`,
       );
+      return false;
     }
   }
 
@@ -120,13 +167,13 @@ export class AutoReplyService {
       businessHoursStart?: string;
       businessHoursEnd?: string;
     },
-  ) {
+  ): Promise<boolean> {
     const kb = await this.prisma.knowledgeBase.findUnique({
       where: { id: 'default' },
     });
-    let system = this.llm.buildSystemPrompt(kb?.content || '');
+    const profile = businessProfileFromSettings(settings);
+    let system = this.llm.buildSystemPrompt(kb?.content || '', profile);
     if (requiresHumanAttention) {
-      const profile = businessProfileFromSettings(settings);
       system = `${system}
 
 ${buildHandoffReplyGuidance(new Date(), profile)}`;
@@ -137,10 +184,12 @@ ${buildHandoffReplyGuidance(new Date(), profile)}`;
 
     try {
       await this.chat.sendMessage(conversationId, reply);
+      return true;
     } catch (e) {
       this.logger.warn(
         `AI reply send failed: ${e instanceof Error ? e.message : e}`,
       );
+      return false;
     }
   }
 

@@ -11,7 +11,8 @@ import { LlmService } from './llm.service';
 import {
   buildCommercialAnalysisPrompt,
   CommercialDecision,
-  parseCommercialDecision,
+  CommercialDecisionDiagnostics,
+  safeParseCommercialDecision,
 } from './commercial-decision.schema';
 import {
   CommercialPolicyResult,
@@ -25,7 +26,9 @@ import {
 
 const RECENT_MESSAGE_LIMIT = 6;
 const MAX_BODY_CHARS = 500;
-const COMMERCIAL_TIMEOUT_MS = 10_000;
+const COMMERCIAL_TIMEOUT_MS = 15_000;
+/** R1 distill spends tokens on thinking — leave headroom for JSON. */
+const COMMERCIAL_MAX_TOKENS = 768;
 
 export type CommercialAnalysisOutcome =
   | 'DISABLED'
@@ -33,6 +36,8 @@ export type CommercialAnalysisOutcome =
   | 'OBSERVED'
   | 'REJECTED'
   | 'NO_CHANGES';
+
+export type CommercialValidationStatus = 'VALID' | 'INVALID' | null;
 
 export type CommercialAnalysisResult = {
   mode: CommercialAutomationMode;
@@ -45,7 +50,15 @@ export type CommercialAnalysisResult = {
   outcome: CommercialAnalysisOutcome;
   reason: string;
   businessHours: BusinessHoursDescription;
+  /** VALID/INVALID when analysis ran; null when DISABLED */
+  validationStatus: CommercialValidationStatus;
+  /** DEV-safe parse diagnostics when INVALID; omitted/null in production */
+  diagnostics: CommercialDecisionDiagnostics | null;
 };
+
+function isDevEnv(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
 
 @Injectable()
 export class CommercialDecisionService {
@@ -95,6 +108,11 @@ export class CommercialDecisionService {
       const reason =
         error instanceof Error ? error.message : 'Error de análisis comercial';
       this.logger.warn(`commercial analysis rejected: ${reason}`);
+      const diagnostics: CommercialDecisionDiagnostics = {
+        code: 'LLM_UNAVAILABLE',
+        message: reason,
+        fieldErrors: [],
+      };
       return {
         mode: settings.commercialAutomationMode,
         ran: true,
@@ -104,8 +122,10 @@ export class CommercialDecisionService {
         appliedTags: [],
         appliedHumanHandoff: false,
         outcome: 'REJECTED',
-        reason,
+        reason: isDevEnv() ? reason : 'Análisis comercial no disponible',
         businessHours,
+        validationStatus: 'INVALID',
+        diagnostics: isDevEnv() ? diagnostics : null,
       };
     }
   }
@@ -129,6 +149,8 @@ export class CommercialDecisionService {
         outcome: 'DISABLED',
         reason: 'Análisis comercial desactivado',
         businessHours,
+        validationStatus: null,
+        diagnostics: null,
       };
     }
 
@@ -164,14 +186,53 @@ export class CommercialDecisionService {
       buildCommercialAnalysisPrompt(),
       JSON.stringify(contextPayload),
       {
-        maxTokens: 320,
+        maxTokens: COMMERCIAL_MAX_TOKENS,
         temperature: 0,
         timeoutMs: COMMERCIAL_TIMEOUT_MS,
+        jsonMode: true,
       },
     );
-    if (!raw) throw new Error('DeepSeek no devolvió un análisis válido');
 
-    const decision = parseCommercialDecision(raw);
+    const parsed = safeParseCommercialDecision(raw);
+    if (!parsed.ok) {
+      const diagnostics: CommercialDecisionDiagnostics = {
+        ...parsed.diagnostics,
+      };
+      if (diagnostics.code === 'EMPTY_RESPONSE') {
+        if (!this.llm.getToken()) {
+          diagnostics.code = 'LLM_UNAVAILABLE';
+          diagnostics.message =
+            'HF_TOKEN ausente — análisis comercial no disponible';
+        } else {
+          diagnostics.message =
+            'DeepSeek no devolvió un análisis válido (vacío tras thinking/timeout)';
+        }
+      }
+      this.logger.warn(
+        `commercial decision rejected: ${diagnostics.code} ${diagnostics.message}` +
+          (diagnostics.fieldErrors.length
+            ? ` fields=${diagnostics.fieldErrors.map((f) => f.path).join(',')}`
+            : ''),
+      );
+      return {
+        mode,
+        ran: true,
+        decision: null,
+        preview: null,
+        appliedStatus: null,
+        appliedTags: [],
+        appliedHumanHandoff: false,
+        outcome: 'REJECTED',
+        reason: isDevEnv()
+          ? diagnostics.message
+          : 'Análisis comercial no disponible',
+        businessHours,
+        validationStatus: 'INVALID',
+        diagnostics: isDevEnv() ? diagnostics : null,
+      };
+    }
+
+    const decision = parsed.decision;
     const preview = evaluateCommercialPolicy(conversation.contact, decision);
 
     if (mode === CommercialAutomationMode.OBSERVE) {
@@ -186,6 +247,8 @@ export class CommercialDecisionService {
         outcome: 'OBSERVED',
         reason: decision.reason,
         businessHours,
+        validationStatus: 'VALID',
+        diagnostics: null,
       };
     }
 
@@ -223,6 +286,8 @@ export class CommercialDecisionService {
           : 'NO_CHANGES',
       reason: decision.reason,
       businessHours,
+      validationStatus: 'VALID',
+      diagnostics: null,
     };
   }
 }

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEMO_KB_CONTENT } from './demo-nova-servicios';
 
 class UpdateKnowledgeBaseDto {
   @IsString()
@@ -20,8 +21,7 @@ export class KnowledgeBaseController {
       update: {},
       create: {
         id: 'default',
-        content:
-          '# Base de conocimiento\n\nEdita este texto con la información de tu negocio.\n',
+        content: DEMO_KB_CONTENT,
       },
     });
     return row;

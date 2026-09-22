@@ -156,6 +156,12 @@ export class ChatService {
     conversationId: string;
     messageId: string;
     commercialAnalysis: CommercialAnalysisResult | null;
+    conversational?: {
+      status: 'OK' | 'SKIPPED' | 'FAILED';
+      detail?: string;
+      welcomeSent?: boolean;
+      aiReplySent?: boolean;
+    } | null;
     duplicate?: boolean;
   } | null> {
     const timestamp = input.timestamp ?? new Date();
@@ -217,6 +223,7 @@ export class ChatService {
           conversationId: conv.id,
           messageId: duplicate.id,
           commercialAnalysis: null,
+          conversational: null,
           duplicate: true,
         };
       }
@@ -237,6 +244,12 @@ export class ChatService {
     this.events.emitConversation(conv);
 
     let commercialAnalysis: CommercialAnalysisResult | null = null;
+    let conversational: {
+      status: 'OK' | 'SKIPPED' | 'FAILED';
+      detail?: string;
+      welcomeSent?: boolean;
+      aiReplySent?: boolean;
+    } | null = null;
     if (input.awaitAutoReply) {
       // Commercial analysis first so auto-reply can inject handoff guidance when needed.
       // Auto-reply OFF still allows commercial classification/handoff marking.
@@ -245,15 +258,27 @@ export class ChatService {
       const needsHandoff =
         analysis.decision?.requiresHumanAttention === true ||
         analysis.preview?.applyHumanHandoff != null;
-      await this.autoReply
-        .handleInbound(conv.id, input.body, {
-          requiresHumanAttention: needsHandoff,
-        })
-        .catch((error) =>
-          this.logger.warn(
-            `auto-reply failed: ${error instanceof Error ? error.message : error}`,
-          ),
+      try {
+        const replyResult = await this.autoReply.handleInbound(
+          conv.id,
+          input.body,
+          { requiresHumanAttention: needsHandoff },
         );
+        conversational = {
+          status: replyResult?.status ?? 'SKIPPED',
+          detail: replyResult?.detail,
+          welcomeSent: replyResult?.welcomeSent ?? false,
+          aiReplySent: replyResult?.aiReplySent ?? false,
+        };
+      } catch (error) {
+        this.logger.warn(
+          `auto-reply failed: ${error instanceof Error ? error.message : error}`,
+        );
+        conversational = {
+          status: 'FAILED',
+          detail: error instanceof Error ? error.message : 'auto-reply failed',
+        };
+      }
     } else {
       // Fire-and-forget: run commercial first, then auto-reply with handoff context.
       void (async () => {
@@ -286,6 +311,7 @@ export class ChatService {
       conversationId: conv.id,
       messageId: message.id,
       commercialAnalysis,
+      conversational,
     };
   }
 

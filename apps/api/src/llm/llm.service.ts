@@ -1,6 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  businessProfileFromSettings,
+  describeBusinessHours,
+  type BusinessProfile,
+} from './business-hours';
+
+/** Strip R1/DeepSeek think blocks, including truncated unclosed tags. */
+export function stripThinkBlocks(content: string): string {
+  let out = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  out = out.replace(/<think>[\s\S]*$/gi, '');
+  return out.trim();
+}
+
+/** Simple `{businessName}` template replace for welcome messages. */
+export function renderWelcomeMessage(
+  template: string,
+  businessName: string,
+): string {
+  const name = businessName.trim() || 'nuestro negocio';
+  return template.split('{businessName}').join(name).trim();
+}
 
 const HF_ROUTER_BASE = 'https://router.huggingface.co/v1';
 const DEFAULT_MODEL = 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B';
@@ -43,6 +64,8 @@ export class LlmService {
       maxTokens?: number;
       temperature?: number;
       timeoutMs?: number;
+      /** Request JSON object output when the router/model supports it. */
+      jsonMode?: boolean;
     },
   ): Promise<string | null> {
     const token = this.getToken();
@@ -79,6 +102,9 @@ export class LlmService {
           ],
           max_tokens: opts?.maxTokens ?? 512,
           temperature: opts?.temperature ?? 0.4,
+          ...(opts?.jsonMode
+            ? { response_format: { type: 'json_object' } }
+            : {}),
         }),
       });
 
@@ -94,8 +120,7 @@ export class LlmService {
         choices?: Array<{ message?: { content?: string } }>;
       };
       let content = data?.choices?.[0]?.message?.content?.trim() || '';
-      // Strip DeepSeek-R1 style <think>...</think> blocks if present
-      content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      content = stripThinkBlocks(content);
       return content || null;
     } catch (e) {
       this.logger.warn(
@@ -111,11 +136,26 @@ export class LlmService {
     return FALLBACK_REPLY;
   }
 
-  buildSystemPrompt(kbContent: string): string {
-    return `Eres un asistente de atención al cliente por WhatsApp para un negocio.
+  buildSystemPrompt(
+    kbContent: string,
+    profile?: BusinessProfile | null,
+  ): string {
+    const p = profile ?? businessProfileFromSettings(null);
+    const hours = describeBusinessHours(new Date(), p);
+    const bizLine = p.businessName.trim()
+      ? `Negocio: ${p.businessName.trim()}`
+      : 'Negocio: (nombre no configurado)';
+
+    return `Eres un asistente de atención al cliente por WhatsApp.
 Responde SIEMPRE en español, de forma breve y amable (estilo WhatsApp: párrafos cortos, sin markdown pesado).
-Usa SOLO la base de conocimiento siguiente. Si no sabes la respuesta, dilo con honestidad y ofrece que un asesor humano continúe.
-No inventes precios, horarios ni datos que no estén en la KB.
+${bizLine}
+Horario oficial (BusinessProfile — fuente de verdad): ${hours.start}–${hours.end} (${hours.timezone}). Hora local aproximada: ${hours.localTime}. Ahora: ${hours.openNow ? 'dentro de horario' : 'fuera de horario'}.
+Si la base de conocimiento menciona otros horarios, prevalece BusinessProfile.
+
+Usa la base de conocimiento para descripción, servicios, FAQs y políticas.
+NUNCA inventes precios, descuentos, disponibilidad, plazos ni condiciones comerciales que no estén explícitas en la KB.
+Si preguntan precio o cotización y no hay tarifa autorizada en la KB, indícalo con honestidad y ofrece que un asesor humano continúe (no inventes cifras).
+Si no sabes la respuesta, dilo y ofrece handoff humano.
 No uses emojis en exceso (máximo 1–2).
 
 # Base de conocimiento

@@ -1,3 +1,11 @@
+import {
+  DEMO_BUSINESS_NAME,
+  DEMO_BUSINESS_PROFILE,
+  DEMO_FIRST_ACTION_UNUSED,
+  DEMO_KB_CONTENT,
+  DEMO_WELCOME_MESSAGE,
+} from '../src/llm/demo-nova-servicios';
+
 /**
  * DEV-only commercial mock contacts.
  * Idempotent: deletes ONLY the exact 8 simulator JIDs below (and their
@@ -475,31 +483,40 @@ async function main() {
   const cleaned = await cleanupDevMockContacts();
   console.log(`Cleaned ${cleaned} prior mock contact(s)`);
 
-  // DEV BusinessProfile fixture only — not a platform default.
+  // DEMO CHATBOT DATA (Nova Servicios) — separate from PIPELINE MOCK DATA below.
   await prisma.botSettings.upsert({
     where: { id: 'default' },
     update: {
-      businessName: 'DMX 4x4',
-      timezone: 'America/Lima',
-      businessHoursStart: '08:00',
-      businessHoursEnd: '18:00',
+      welcomeMessage: DEMO_WELCOME_MESSAGE,
+      firstAction: DEMO_FIRST_ACTION_UNUSED,
+      businessName: DEMO_BUSINESS_PROFILE.businessName,
+      timezone: DEMO_BUSINESS_PROFILE.timezone,
+      businessHoursStart: DEMO_BUSINESS_PROFILE.businessHoursStart,
+      businessHoursEnd: DEMO_BUSINESS_PROFILE.businessHoursEnd,
     },
     create: {
       id: 'default',
-      welcomeMessage:
-        '¡Hola! 👋 Bienvenido/a a DMX 4x4. Soy el asistente virtual.',
-      firstAction:
-        'Escribe 1 para productos, 2 para horarios, o cuéntame en qué puedo ayudarte.',
+      welcomeMessage: DEMO_WELCOME_MESSAGE,
+      firstAction: DEMO_FIRST_ACTION_UNUSED,
       hfModel: null,
       globalAutoReplyEnabled: false,
       commercialAutomationMode: 'OFF',
-      businessName: 'DMX 4x4',
-      timezone: 'America/Lima',
-      businessHoursStart: '08:00',
-      businessHoursEnd: '18:00',
+      businessName: DEMO_BUSINESS_PROFILE.businessName,
+      timezone: DEMO_BUSINESS_PROFILE.timezone,
+      businessHoursStart: DEMO_BUSINESS_PROFILE.businessHoursStart,
+      businessHoursEnd: DEMO_BUSINESS_PROFILE.businessHoursEnd,
     },
   });
-  console.log('Seed-dev OK — BotSettings BusinessProfile fixture (DMX 4x4 / America/Lima 08–18)');
+
+  await prisma.knowledgeBase.upsert({
+    where: { id: 'default' },
+    update: { content: DEMO_KB_CONTENT },
+    create: { id: 'default', content: DEMO_KB_CONTENT },
+  });
+
+  console.log(
+    'Seed-dev OK — DEMO CHATBOT DATA (Nova Servicios / America/Lima 09–18) + KB',
+  );
 
   await seedScenarios();
   console.log(

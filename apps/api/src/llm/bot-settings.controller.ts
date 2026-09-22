@@ -10,12 +10,13 @@ import {
 import { CommercialAutomationMode } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  DEMO_FIRST_ACTION_UNUSED,
+  DEMO_WELCOME_MESSAGE,
+} from './demo-nova-servicios';
 
-const DEFAULT_WELCOME =
-  '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.';
-
-const DEFAULT_FIRST_ACTION =
-  'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.';
+const DEFAULT_WELCOME = DEMO_WELCOME_MESSAGE;
+const DEFAULT_FIRST_ACTION = DEMO_FIRST_ACTION_UNUSED;
 
 const HH_MM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 

@@ -51,7 +51,7 @@ function makeService(opts: {
   };
   const svc = new CommercialDecisionService(
     prisma as never,
-    { chatCompletion } as never,
+    { chatCompletion, getToken: () => 'hf_test' } as never,
     { applyCommercialAutomation } as never,
   );
   return { svc, chatCompletion, applyCommercialAutomation, prisma };
@@ -167,5 +167,17 @@ describe('CommercialDecisionService modes + resilience', () => {
     expect(call[1].applyHumanHandoff?.reason).toBe('PRICING');
     expect(result.appliedHumanHandoff).toBe(true);
     expect(result.outcome).toBe('APPLIED');
+  });
+
+  it('invalid JSON → REJECTED with INVALID diagnostics (no CRM writes)', async () => {
+    const { svc, applyCommercialAutomation } = makeService({
+      mode: CommercialAutomationMode.APPLY,
+      llmRaw: 'not-json-at-all',
+    });
+    const result = await svc.handleInbound('conv1');
+    expect(result.outcome).toBe('REJECTED');
+    expect(result.validationStatus).toBe('INVALID');
+    expect(result.diagnostics?.code).toBeTruthy();
+    expect(applyCommercialAutomation).not.toHaveBeenCalled();
   });
 });
