@@ -37,12 +37,32 @@ enum CommercialActivityType {
   STATUS_CHANGED
   NOTES_UPDATED
   TAGS_UPDATED
+  HUMAN_HANDOFF_REQUESTED
+  HUMAN_HANDOFF_RESOLVED
 }
 
 enum CommercialActivitySource {
   SYSTEM
   USER
   SEED
+  DEEPSEEK
+}
+
+enum CommercialAutomationMode {
+  OFF
+  OBSERVE
+  APPLY
+}
+
+enum HandoffReason {
+  PRICING
+  QUOTE_REQUEST
+  NEGOTIATION
+  DISCOUNT
+  AVAILABILITY_CONFIRMATION
+  CUSTOM_REQUEST
+  HUMAN_DECISION
+  OTHER
 }
 
 model User {
@@ -60,11 +80,14 @@ model Contact {
   profileName          String?
   firstSeenAt          DateTime             @default(now())
   lastSeenAt           DateTime?
-  leadStatus           LeadStatus           @default(NEW)
-  notes                String?
-  tags                 String[]             @default([])
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  leadStatus               LeadStatus           @default(NEW)
+  notes                    String?
+  tags                     String[]             @default([])
+  requiresHumanAttention   Boolean              @default(false)
+  humanHandoffReason      HandoffReason?
+  humanHandoffUpdatedAt   DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
   conversations        Conversation[]
   commercialActivities CommercialActivity[]
 }
@@ -128,6 +151,11 @@ model BotSettings {
   welcomeMessage          String   @db.Text
   firstAction             String   @db.Text
   hfModel                 String?
-  globalAutoReplyEnabled  Boolean  @default(false)
-  updatedAt               DateTime @updatedAt
+  globalAutoReplyEnabled   Boolean                   @default(false)
+  commercialAutomationMode CommercialAutomationMode  @default(OFF)
+  businessName             String                    @default("")
+  timezone                 String                    @default("UTC")
+  businessHoursStart       String                    @default("09:00")
+  businessHoursEnd         String                    @default("17:00")
+  updatedAt                DateTime                  @updatedAt
 }

@@ -2,6 +2,10 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { LlmService } from './llm.service';
+import {
+  buildHandoffReplyGuidance,
+  businessProfileFromSettings,
+} from './business-hours';
 
 const DEFAULT_WELCOME =
   '¡Hola! 👋 Bienvenido/a. Soy el asistente virtual de nuestro negocio. Estoy aquí para ayudarte con información sobre productos, servicios y horarios.';
@@ -26,15 +30,23 @@ export class AutoReplyService {
    * Fire-and-forget safe entry: never throws to caller.
    * Call after inbound message is persisted.
    */
-  handleInboundAsync(conversationId: string, userBody: string) {
-    void this.handleInbound(conversationId, userBody).catch((e) =>
+  handleInboundAsync(
+    conversationId: string,
+    userBody: string,
+    opts?: { requiresHumanAttention?: boolean },
+  ) {
+    void this.handleInbound(conversationId, userBody, opts).catch((e) =>
       this.logger.warn(
         `auto-reply failed: ${e instanceof Error ? e.message : e}`,
       ),
     );
   }
 
-  async handleInbound(conversationId: string, userBody: string) {
+  async handleInbound(
+    conversationId: string,
+    userBody: string,
+    opts?: { requiresHumanAttention?: boolean },
+  ) {
     if (this.busy.has(conversationId)) {
       this.logger.debug(`skip auto-reply (busy) ${conversationId}`);
       return;
@@ -67,7 +79,12 @@ export class AutoReplyService {
         await this.sendWelcome(conversationId, settings);
       }
 
-      await this.sendAiReply(conversationId, userBody);
+      await this.sendAiReply(
+        conversationId,
+        userBody,
+        opts?.requiresHumanAttention === true,
+        settings,
+      );
     } finally {
       this.busy.delete(conversationId);
     }
@@ -93,11 +110,27 @@ export class AutoReplyService {
     }
   }
 
-  private async sendAiReply(conversationId: string, userBody: string) {
+  private async sendAiReply(
+    conversationId: string,
+    userBody: string,
+    requiresHumanAttention = false,
+    settings?: {
+      businessName?: string;
+      timezone?: string;
+      businessHoursStart?: string;
+      businessHoursEnd?: string;
+    },
+  ) {
     const kb = await this.prisma.knowledgeBase.findUnique({
       where: { id: 'default' },
     });
-    const system = this.llm.buildSystemPrompt(kb?.content || '');
+    let system = this.llm.buildSystemPrompt(kb?.content || '');
+    if (requiresHumanAttention) {
+      const profile = businessProfileFromSettings(settings);
+      system = `${system}
+
+${buildHandoffReplyGuidance(new Date(), profile)}`;
+    }
     const reply =
       (await this.llm.chatCompletion(system, userBody)) ||
       this.llm.fallbackReply();
@@ -121,6 +154,7 @@ export class AutoReplyService {
         welcomeMessage: DEFAULT_WELCOME,
         firstAction: DEFAULT_FIRST_ACTION,
         globalAutoReplyEnabled: false,
+        commercialAutomationMode: 'OFF',
       },
     });
   }

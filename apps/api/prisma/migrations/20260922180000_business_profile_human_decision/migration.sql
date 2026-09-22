@@ -1,0 +1,9 @@
+-- BusinessProfile on BotSettings (platform-neutral defaults; DEV seed may override)
+ALTER TABLE "BotSettings"
+ADD COLUMN IF NOT EXISTS "businessName" TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS "timezone" TEXT NOT NULL DEFAULT 'UTC',
+ADD COLUMN IF NOT EXISTS "businessHoursStart" TEXT NOT NULL DEFAULT '09:00',
+ADD COLUMN IF NOT EXISTS "businessHoursEnd" TEXT NOT NULL DEFAULT '17:00';
+
+-- Rename handoff reason: MANAGER_DECISION → HUMAN_DECISION
+ALTER TYPE "HandoffReason" RENAME VALUE 'MANAGER_DECISION' TO 'HUMAN_DECISION';

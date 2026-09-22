@@ -1,5 +1,13 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import { CommercialAutomationMode } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -8,6 +16,8 @@ const DEFAULT_WELCOME =
 
 const DEFAULT_FIRST_ACTION =
   'Escribe 1 para precios, 2 para horarios, o cuéntame en qué puedo ayudarte.';
+
+const HH_MM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 class PatchBotSettingsDto {
   @IsOptional()
@@ -25,6 +35,30 @@ class PatchBotSettingsDto {
   @IsOptional()
   @IsBoolean()
   globalAutoReplyEnabled?: boolean;
+
+  @IsOptional()
+  @IsEnum(CommercialAutomationMode)
+  commercialAutomationMode?: CommercialAutomationMode;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(HH_MM, { message: 'businessHoursStart must be HH:mm' })
+  businessHoursStart?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(HH_MM, { message: 'businessHoursEnd must be HH:mm' })
+  businessHoursEnd?: string;
 }
 
 @Controller('bot-settings')
@@ -42,6 +76,7 @@ export class BotSettingsController {
         welcomeMessage: DEFAULT_WELCOME,
         firstAction: DEFAULT_FIRST_ACTION,
         globalAutoReplyEnabled: false,
+        commercialAutomationMode: CommercialAutomationMode.OFF,
       },
     });
   }
@@ -53,6 +88,11 @@ export class BotSettingsController {
       firstAction?: string;
       hfModel?: string | null;
       globalAutoReplyEnabled?: boolean;
+      commercialAutomationMode?: CommercialAutomationMode;
+      businessName?: string;
+      timezone?: string;
+      businessHoursStart?: string;
+      businessHoursEnd?: string;
     } = {};
     if (dto.welcomeMessage !== undefined) data.welcomeMessage = dto.welcomeMessage;
     if (dto.firstAction !== undefined) data.firstAction = dto.firstAction;
@@ -61,6 +101,21 @@ export class BotSettingsController {
     }
     if (dto.globalAutoReplyEnabled !== undefined) {
       data.globalAutoReplyEnabled = dto.globalAutoReplyEnabled;
+    }
+    if (dto.commercialAutomationMode !== undefined) {
+      data.commercialAutomationMode = dto.commercialAutomationMode;
+    }
+    if (dto.businessName !== undefined) {
+      data.businessName = dto.businessName.trim();
+    }
+    if (dto.timezone !== undefined) {
+      data.timezone = dto.timezone.trim() || 'UTC';
+    }
+    if (dto.businessHoursStart !== undefined) {
+      data.businessHoursStart = dto.businessHoursStart;
+    }
+    if (dto.businessHoursEnd !== undefined) {
+      data.businessHoursEnd = dto.businessHoursEnd;
     }
 
     return this.prisma.botSettings.upsert({
@@ -72,6 +127,12 @@ export class BotSettingsController {
         firstAction: dto.firstAction ?? DEFAULT_FIRST_ACTION,
         hfModel: data.hfModel ?? null,
         globalAutoReplyEnabled: data.globalAutoReplyEnabled ?? false,
+        commercialAutomationMode:
+          data.commercialAutomationMode ?? CommercialAutomationMode.OFF,
+        businessName: data.businessName ?? '',
+        timezone: data.timezone ?? 'UTC',
+        businessHoursStart: data.businessHoursStart ?? '09:00',
+        businessHoursEnd: data.businessHoursEnd ?? '17:00',
       },
     });
   }

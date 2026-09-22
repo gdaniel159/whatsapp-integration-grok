@@ -7,7 +7,7 @@ Append-only commercial timeline on Contact. Activities are generated **only on t
 ### Enums
 - `CommercialActivityType`: `CONTACT_CREATED` | `STATUS_CHANGED` | `NOTES_UPDATED` | `TAGS_UPDATED`
 - `CommercialActivitySource`: `SYSTEM` | `USER` | `SEED`  
-  (`AI` is reserved for a later phase — **not** in schema yet.)
+  (`DEEPSEEK` added in phase 13 for automation-sourced activities.)
 
 ### CommercialActivity
 | Field | Type | Notes |

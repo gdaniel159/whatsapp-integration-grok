@@ -256,6 +256,19 @@ function makePipeline() {
     wa as never,
     contacts,
     autoReply as never,
+    {
+      handleInboundAsync: jest.fn(),
+      handleInbound: jest.fn(async () => ({
+        mode: 'OFF',
+        ran: false,
+        decision: null,
+        preview: null,
+        appliedStatus: null,
+        appliedTags: [],
+        outcome: 'DISABLED',
+        reason: 'Análisis comercial desactivado',
+      })),
+    } as never,
   );
 
   const controller = new DevController(chat, prisma as never);

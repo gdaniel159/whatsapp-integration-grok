@@ -41,5 +41,11 @@ export interface BotSettingsDto {
   welcomeMessage: string;
   firstAction: string;
   hfModel: string | null;
+  globalAutoReplyEnabled?: boolean;
+  commercialAutomationMode?: 'OFF' | 'OBSERVE' | 'APPLY';
+  businessName?: string;
+  timezone?: string;
+  businessHoursStart?: string;
+  businessHoursEnd?: string;
   updatedAt: string;
 }

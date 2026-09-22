@@ -78,6 +78,7 @@ export class DevController {
       conversationId: result.conversationId,
       messageId: result.messageId,
       remoteJid: conv.remoteJid,
+      commercialAnalysis: result.commercialAnalysis,
     };
   }
 }

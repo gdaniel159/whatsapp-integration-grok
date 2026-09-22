@@ -66,6 +66,11 @@ async function main() {
       firstAction: DEFAULT_FIRST_ACTION,
       hfModel: null,
       globalAutoReplyEnabled: false,
+      commercialAutomationMode: 'OFF',
+      businessName: '',
+      timezone: 'UTC',
+      businessHoursStart: '09:00',
+      businessHoursEnd: '17:00',
     },
   });
 

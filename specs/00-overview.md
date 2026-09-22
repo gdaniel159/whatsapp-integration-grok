@@ -45,3 +45,6 @@ CRM-lite fields on Contact (`leadStatus`, `notes`, `tags`) — see `08-contact-c
 
 ## UI foundation
 Frontend uses **shadcn/ui** (new-york / slate) — see `09-shadcn-ui-foundation.md`.
+
+## Commercial automation (phase 13)
+Opt-in DeepSeek commercial decision engine (`commercialAutomationMode` OFF/OBSERVE/APPLY) — see `13-deepseek-commercial-decision-engine.md`. Independent of global auto-reply; never auto WON/LOST/QUOTED.

@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -36,6 +37,11 @@ export class ContactsController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.contacts.getById(id);
+  }
+
+  @Post(':id/resolve-human-handoff')
+  resolveHumanHandoff(@Param('id') id: string) {
+    return this.contacts.resolveHumanHandoff(id);
   }
 
   @Patch(':id')

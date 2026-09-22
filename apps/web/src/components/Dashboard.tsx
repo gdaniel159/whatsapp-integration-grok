@@ -87,8 +87,47 @@ interface BotSettings {
   firstAction: string;
   hfModel: string | null;
   globalAutoReplyEnabled?: boolean;
+  commercialAutomationMode?: 'OFF' | 'OBSERVE' | 'APPLY';
+  businessName?: string;
+  timezone?: string;
+  businessHoursStart?: string;
+  businessHoursEnd?: string;
   updatedAt: string;
 }
+
+type CommercialAnalysisDebug = {
+  mode: 'OFF' | 'OBSERVE' | 'APPLY';
+  ran: boolean;
+  decision: {
+    intent: string;
+    suggestedStatus: string | null;
+    suggestedTags: string[];
+    confidence: number;
+    reason: string;
+    requiresHumanAttention?: boolean;
+    handoffReason?: string | null;
+  } | null;
+  preview: {
+    applyStatus?: string;
+    addTags: string[];
+    rejectedChanges: string[];
+    applyHumanHandoff?: { requiresHumanAttention: true; reason: string };
+  } | null;
+  appliedStatus: string | null;
+  appliedTags: string[];
+  appliedHumanHandoff?: boolean;
+  outcome: 'DISABLED' | 'APPLIED' | 'OBSERVED' | 'REJECTED' | 'NO_CHANGES';
+  reason: string;
+  businessHours?: {
+    businessName?: string;
+    timezone: string;
+    start: string;
+    end: string;
+    openNow: boolean;
+    localTime?: string;
+  };
+};
+
 
 interface ContactRow {
   id: string;
@@ -162,6 +201,19 @@ export function Dashboard() {
   const [settingsSavedAt, setSettingsSavedAt] = useState<string | null>(null);
   const [globalAutoReplyEnabled, setGlobalAutoReplyEnabled] = useState(false);
   const [togglingGlobalAutoReply, setTogglingGlobalAutoReply] = useState(false);
+  const [commercialAutomationMode, setCommercialAutomationMode] = useState<
+    'OFF' | 'OBSERVE' | 'APPLY'
+  >('OFF');
+  const [savingCommercialMode, setSavingCommercialMode] = useState(false);
+  const [businessName, setBusinessName] = useState('');
+  const [timezone, setTimezone] = useState('UTC');
+  const [businessHoursStart, setBusinessHoursStart] = useState('09:00');
+  const [businessHoursEnd, setBusinessHoursEnd] = useState('17:00');
+  const [businessSaving, setBusinessSaving] = useState(false);
+  const [businessSavedAt, setBusinessSavedAt] = useState<string | null>(null);
+  const [simAnalysis, setSimAnalysis] = useState<CommercialAnalysisDebug | null>(
+    null,
+  );
 
   // Contacts
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -236,6 +288,11 @@ export function Dashboard() {
       setFirstAction(settings.firstAction);
       setHfModel(settings.hfModel || '');
       setGlobalAutoReplyEnabled(settings.globalAutoReplyEnabled ?? false);
+      setCommercialAutomationMode(settings.commercialAutomationMode ?? 'OFF');
+      setBusinessName(settings.businessName ?? '');
+      setTimezone(settings.timezone ?? 'UTC');
+      setBusinessHoursStart(settings.businessHoursStart ?? '09:00');
+      setBusinessHoursEnd(settings.businessHoursEnd ?? '17:00');
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'Error cargando base de conocimiento',
@@ -288,8 +345,18 @@ export function Dashboard() {
     );
     loadConversations();
     api<BotSettings>('/bot-settings')
-      .then((s) => setGlobalAutoReplyEnabled(s.globalAutoReplyEnabled ?? false))
-      .catch(() => setGlobalAutoReplyEnabled(false));
+      .then((row) => {
+        setGlobalAutoReplyEnabled(row.globalAutoReplyEnabled ?? false);
+        setCommercialAutomationMode(row.commercialAutomationMode ?? 'OFF');
+        setBusinessName(row.businessName ?? '');
+        setTimezone(row.timezone ?? 'UTC');
+        setBusinessHoursStart(row.businessHoursStart ?? '09:00');
+        setBusinessHoursEnd(row.businessHoursEnd ?? '17:00');
+      })
+      .catch(() => {
+        setGlobalAutoReplyEnabled(false);
+        setCommercialAutomationMode('OFF');
+      });
 
     const socket = getSocket();
     const onQr = (p: { qr: string }) => {
@@ -420,6 +487,29 @@ export function Dashboard() {
     }
   }
 
+  async function saveCommercialAutomationMode(
+    mode: 'OFF' | 'OBSERVE' | 'APPLY',
+  ) {
+    setSavingCommercialMode(true);
+    setError('');
+    try {
+      const row = await api<BotSettings>('/bot-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ commercialAutomationMode: mode }),
+      });
+      setCommercialAutomationMode(row.commercialAutomationMode ?? mode);
+      toast.success('Automatización comercial actualizada');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo actualizar la automatización comercial',
+      );
+    } finally {
+      setSavingCommercialMode(false);
+    }
+  }
+
   async function saveKnowledgeBase(e: React.FormEvent) {
     e.preventDefault();
     setKbSaving(true);
@@ -463,6 +553,37 @@ export function Dashboard() {
       );
     } finally {
       setSettingsSaving(false);
+    }
+  }
+
+  async function saveBusinessProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setBusinessSaving(true);
+    setError('');
+    try {
+      const row = await api<BotSettings>('/bot-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          businessName: businessName.trim(),
+          timezone: timezone.trim() || 'UTC',
+          businessHoursStart,
+          businessHoursEnd,
+        }),
+      });
+      setBusinessName(row.businessName ?? '');
+      setTimezone(row.timezone ?? 'UTC');
+      setBusinessHoursStart(row.businessHoursStart ?? '09:00');
+      setBusinessHoursEnd(row.businessHoursEnd ?? '17:00');
+      setBusinessSavedAt(row.updatedAt);
+      toast.success('Configuración de negocio guardada');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo guardar configuración de negocio',
+      );
+    } finally {
+      setBusinessSaving(false);
     }
   }
 
@@ -518,11 +639,13 @@ export function Dashboard() {
     setSimError('');
     setSimOk('');
     try {
+      setSimAnalysis(null);
       const res = await api<{
         contactId: string;
         conversationId: string;
         messageId: string;
         remoteJid: string;
+        commercialAnalysis?: CommercialAnalysisDebug | null;
       }>('/dev/simulate-inbound', {
         method: 'POST',
         body: JSON.stringify({
@@ -533,6 +656,7 @@ export function Dashboard() {
       });
       const okMsg = `OK — ${res.remoteJid} · conversación ${res.conversationId.slice(0, 8)}…`;
       setSimOk(okMsg);
+      setSimAnalysis(res.commercialAnalysis ?? null);
       toast.success('Mensaje simulado', { description: okMsg });
       await loadConversations();
       setSelectedId(res.conversationId);
@@ -737,6 +861,121 @@ export function Dashboard() {
                       {simOk}
                     </div>
                   )}
+                  {simAnalysis && simAnalysis.outcome === 'DISABLED' ? (
+                    <div className="rounded-lg border bg-muted/40 text-sm px-3 py-2 text-muted-foreground">
+                      Análisis comercial desactivado (modo OFF)
+                    </div>
+                  ) : null}
+                  {simAnalysis && simAnalysis.outcome !== 'DISABLED' ? (
+                    <div className="rounded-lg border bg-card text-sm p-3 space-y-1.5">
+                      <div className="font-medium">Análisis comercial (DEV)</div>
+                      <div>
+                        <span className="text-muted-foreground">Intent:</span>{' '}
+                        {simAnalysis.decision?.intent ?? '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Estado sugerido:
+                        </span>{' '}
+                        {simAnalysis.decision?.suggestedStatus ?? '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Estado aplicado:
+                        </span>{' '}
+                        {simAnalysis.appliedStatus ?? '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Confianza:</span>{' '}
+                        {simAnalysis.decision
+                          ? `${Math.round(simAnalysis.decision.confidence * 100)}%`
+                          : '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Tags sugeridos:
+                        </span>{' '}
+                        {(simAnalysis.decision?.suggestedTags ?? []).join(', ') ||
+                          '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Tags aplicados:
+                        </span>{' '}
+                        {(simAnalysis.appliedTags ?? []).join(', ') || '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Decisión:</span>{' '}
+                        {simAnalysis.outcome === 'APPLIED'
+                          ? 'Aplicada'
+                          : simAnalysis.outcome === 'OBSERVED'
+                            ? 'Observada'
+                            : simAnalysis.outcome === 'REJECTED'
+                              ? 'Rechazada'
+                              : 'Sin cambios'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Razón:</span>{' '}
+                        {simAnalysis.reason || '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Requiere atención humana:
+                        </span>{' '}
+                        {simAnalysis.decision?.requiresHumanAttention
+                          ? 'Sí'
+                          : 'No'}
+                        {simAnalysis.decision?.handoffReason
+                          ? ` (${simAnalysis.decision.handoffReason})`
+                          : ''}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Handoff aplicado:
+                        </span>{' '}
+                        {simAnalysis.appliedHumanHandoff ? 'Sí' : 'No'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Negocio:</span>{' '}
+                        {simAnalysis.businessHours?.businessName?.trim()
+                          ? simAnalysis.businessHours.businessName
+                          : '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Hora local del negocio:
+                        </span>{' '}
+                        {simAnalysis.businessHours?.localTime
+                          ? `${simAnalysis.businessHours.localTime} (${simAnalysis.businessHours.timezone})`
+                          : '—'}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Dentro de horario:
+                        </span>{' '}
+                        {simAnalysis.businessHours
+                          ? simAnalysis.businessHours.openNow
+                            ? 'Sí'
+                            : 'No'
+                          : '—'}
+                        {simAnalysis.businessHours
+                          ? ` (${simAnalysis.businessHours.start}–${simAnalysis.businessHours.end})`
+                          : ''}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Handoff humano:
+                        </span>{' '}
+                        {simAnalysis.decision?.requiresHumanAttention ||
+                        simAnalysis.appliedHumanHandoff
+                          ? 'Sí'
+                          : 'No'}
+                        {simAnalysis.decision?.handoffReason
+                          ? ` — ${simAnalysis.decision.handoffReason}`
+                          : ''}
+                      </div>
+                    </div>
+                  ) : null}
                 </form>
               </CardContent>
               <CardFooter className="justify-end">
@@ -793,6 +1032,126 @@ export function Dashboard() {
             </Card>
 
             <Card>
+              <CardHeader>
+                <CardTitle>Configuración → Negocio</CardTitle>
+                <CardDescription>
+                  Perfil del negocio (singleton). Define nombre, zona horaria y
+                  horario comercial usados por handoff y el simulador. No es
+                  multi-tenant.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  id="business-form"
+                  onSubmit={saveBusinessProfile}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label htmlFor="business-name">Nombre</Label>
+                    <Input
+                      id="business-name"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                      placeholder="Nombre del negocio"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="business-tz">Zona horaria</Label>
+                    <Input
+                      id="business-tz"
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      placeholder="UTC"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      IANA, p. ej. America/Lima, America/New_York, UTC.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bh-start">Hora inicio</Label>
+                      <Input
+                        id="bh-start"
+                        type="time"
+                        value={businessHoursStart}
+                        onChange={(e) => setBusinessHoursStart(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bh-end">Hora fin</Label>
+                      <Input
+                        id="bh-end"
+                        type="time"
+                        value={businessHoursEnd}
+                        onChange={(e) => setBusinessHoursEnd(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Ventana media abierta [inicio, fin). Por defecto de
+                    plataforma: UTC 09:00–17:00.
+                  </p>
+                </form>
+              </CardContent>
+              <CardFooter className="justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {businessSavedAt
+                    ? `Guardado: ${new Date(businessSavedAt).toLocaleString()}`
+                    : ' '}
+                </span>
+                <Button
+                  type="submit"
+                  form="business-form"
+                  disabled={businessSaving}
+                  className="bg-brand-600 hover:bg-brand-700 text-white"
+                >
+                  {businessSaving ? 'Guardando…' : 'Guardar negocio'}
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Automatización comercial</CardTitle>
+                <CardDescription>
+                  Análisis comercial con DeepSeek, independiente de las respuestas
+                  automáticas. OFF no analiza; OBSERVE analiza sin escribir; APPLY
+                  aplica solo cambios autorizados por la política del backend.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="commercial-mode">Modo</Label>
+                  <Select
+                    value={commercialAutomationMode}
+                    onValueChange={(v) =>
+                      saveCommercialAutomationMode(
+                        v as 'OFF' | 'OBSERVE' | 'APPLY',
+                      )
+                    }
+                    disabled={savingCommercialMode}
+                  >
+                    <SelectTrigger id="commercial-mode">
+                      <SelectValue placeholder="Modo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OFF">OFF — desactivado</SelectItem>
+                      <SelectItem value="OBSERVE">
+                        OBSERVE — solo observar
+                      </SelectItem>
+                      <SelectItem value="APPLY">
+                        APPLY — aplicar cambios seguros
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Nunca auto-marca WON/LOST ni QUOTED. No edita notas ni la KB.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+<Card>
               <CardHeader>
                 <CardTitle>Bienvenida y primera acción</CardTitle>
                 <CardDescription>

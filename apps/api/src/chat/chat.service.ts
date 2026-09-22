@@ -11,6 +11,10 @@ import { EventsGateway } from '../events/events.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { AutoReplyService } from '../llm/auto-reply.service';
+import {
+  CommercialAnalysisResult,
+  CommercialDecisionService,
+} from '../llm/commercial-decision.service';
 import { isSimulatorJid, normalizeWaJid } from '../contacts/jid.util';
 
 export type ProcessIncomingMessageInput = {
@@ -24,6 +28,7 @@ export type ProcessIncomingMessageInput = {
   awaitAutoReply?: boolean;
 };
 
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -36,6 +41,8 @@ export class ChatService {
     private readonly contacts: ContactsService,
     @Inject(forwardRef(() => AutoReplyService))
     private readonly autoReply: AutoReplyService,
+    @Inject(forwardRef(() => CommercialDecisionService))
+    private readonly commercialDecision: CommercialDecisionService,
   ) {}
 
   listConversations() {
@@ -145,7 +152,12 @@ export class ChatService {
    */
   async processIncomingMessage(
     input: ProcessIncomingMessageInput,
-  ): Promise<{ conversationId: string; messageId: string } | null> {
+  ): Promise<{
+    conversationId: string;
+    messageId: string;
+    commercialAnalysis: CommercialAnalysisResult | null;
+    duplicate?: boolean;
+  } | null> {
     const timestamp = input.timestamp ?? new Date();
     const displayName = input.displayName ?? null;
 
@@ -189,6 +201,27 @@ export class ChatService {
       },
     });
 
+    // Baileys can redeliver the same event after reconnect. Reuse the existing
+    // WhatsApp identity when present and do not retrigger reply/CRM automation.
+    if (input.messageId) {
+      const duplicate = await this.prisma.message.findFirst({
+        where: {
+          conversationId: conv.id,
+          direction: 'IN',
+          waMessageId: input.messageId,
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        return {
+          conversationId: conv.id,
+          messageId: duplicate.id,
+          commercialAnalysis: null,
+          duplicate: true,
+        };
+      }
+    }
+
     const message = await this.prisma.message.create({
       data: {
         conversationId: conv.id,
@@ -203,13 +236,57 @@ export class ChatService {
     this.events.emitMessage(message);
     this.events.emitConversation(conv);
 
+    let commercialAnalysis: CommercialAnalysisResult | null = null;
     if (input.awaitAutoReply) {
-      await this.autoReply.handleInbound(conv.id, input.body);
+      // Commercial analysis first so auto-reply can inject handoff guidance when needed.
+      // Auto-reply OFF still allows commercial classification/handoff marking.
+      const analysis = await this.commercialDecision.handleInbound(conv.id);
+      commercialAnalysis = analysis;
+      const needsHandoff =
+        analysis.decision?.requiresHumanAttention === true ||
+        analysis.preview?.applyHumanHandoff != null;
+      await this.autoReply
+        .handleInbound(conv.id, input.body, {
+          requiresHumanAttention: needsHandoff,
+        })
+        .catch((error) =>
+          this.logger.warn(
+            `auto-reply failed: ${error instanceof Error ? error.message : error}`,
+          ),
+        );
     } else {
-      this.autoReply.handleInboundAsync(conv.id, input.body);
+      // Fire-and-forget: run commercial first, then auto-reply with handoff context.
+      void (async () => {
+        let needsHandoff = false;
+        try {
+          const analysis = await this.commercialDecision.handleInbound(conv.id);
+          needsHandoff =
+            analysis.decision?.requiresHumanAttention === true ||
+            analysis.preview?.applyHumanHandoff != null;
+        } catch (error) {
+          this.logger.warn(
+            `commercial analysis failed: ${
+              error instanceof Error ? error.message : error
+            }`,
+          );
+        }
+        await this.autoReply.handleInbound(conv.id, input.body, {
+          requiresHumanAttention: needsHandoff,
+        });
+      })().catch((error) =>
+        this.logger.warn(
+          `inbound post-processing failed: ${
+            error instanceof Error ? error.message : error
+          }`,
+        ),
+      );
     }
 
-    return { conversationId: conv.id, messageId: message.id };
+    return {
+      conversationId: conv.id,
+      messageId: message.id,
+      commercialAnalysis,
+    };
   }
 
   /** @deprecated Prefer processIncomingMessage — kept as thin internal alias. */

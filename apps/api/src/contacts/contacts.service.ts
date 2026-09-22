@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Contact } from '@prisma/client';
+import {
+  CommercialActivitySource,
+  CommercialActivityType,
+  Contact,
+  HandoffReason,
+  LeadStatus,
+} from '@prisma/client';
 import { UpdateCommercialDto } from './update-commercial.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -95,6 +101,167 @@ export class ContactsService {
           })),
         });
       }
+    });
+
+    return this.getById(id);
+  }
+
+  /** Apply policy-authorized status/tags/handoff and DEEPSEEK activities atomically. */
+  async applyCommercialAutomation(
+    id: string,
+    action: {
+      applyStatus?: LeadStatus;
+      addTags: string[];
+      applyHumanHandoff?: { requiresHumanAttention: true; reason: HandoffReason };
+    },
+    audit: { intent: string; confidence: number; reason: string },
+  ): Promise<{
+    appliedStatus: LeadStatus | null;
+    appliedTags: string[];
+    appliedHumanHandoff: boolean;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.contact.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Contacto no encontrado');
+
+      // Re-check safety at the write boundary in case the contact changed after preview.
+      const statusAllowed =
+        action.applyStatus === LeadStatus.INTERESTED &&
+        (existing.leadStatus === LeadStatus.NEW ||
+          existing.leadStatus === LeadStatus.IN_PROGRESS);
+      const appliedStatus = statusAllowed ? LeadStatus.INTERESTED : null;
+
+      const seen = new Set(
+        existing.tags.map((tag) => tag.trim().toLocaleLowerCase()),
+      );
+      const appliedTags: string[] = [];
+      for (const tag of action.addTags) {
+        const key = tag.trim().toLocaleLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        appliedTags.push(tag);
+      }
+
+      const dto: UpdateCommercialDto = {};
+      if (appliedStatus) dto.leadStatus = appliedStatus;
+      if (appliedTags.length > 0) dto.tags = [...existing.tags, ...appliedTags];
+
+      const data = commercialUpdateData(dto);
+      const activities = diffCommercialActivities(
+        {
+          leadStatus: existing.leadStatus,
+          notes: existing.notes,
+          tags: existing.tags,
+        },
+        dto,
+        {
+          source: CommercialActivitySource.DEEPSEEK,
+          statusMetadata: {
+            intent: audit.intent,
+            confidence: audit.confidence,
+            reason: audit.reason,
+          },
+          tagsMetadata: {
+            intent: audit.intent,
+            confidence: audit.confidence,
+          },
+        },
+      );
+
+      const handoff = action.applyHumanHandoff;
+      const handoffNewlyRequired =
+        !!handoff &&
+        (!existing.requiresHumanAttention ||
+          existing.humanHandoffReason !== handoff.reason);
+
+      if (handoffNewlyRequired && handoff) {
+        activities.push({
+          type: CommercialActivityType.HUMAN_HANDOFF_REQUESTED,
+          source: CommercialActivitySource.DEEPSEEK,
+          title: 'Atención humana solicitada',
+          description: `Motivo: ${handoff.reason}`,
+          metadata: {
+            reason: handoff.reason,
+            intent: audit.intent,
+            confidence: audit.confidence,
+          },
+        });
+      }
+
+      if (activities.length === 0 && !handoffNewlyRequired) {
+        return {
+          appliedStatus: null,
+          appliedTags: [],
+          appliedHumanHandoff: false,
+        };
+      }
+
+      await tx.contact.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(handoffNewlyRequired && handoff
+            ? {
+                requiresHumanAttention: true,
+                humanHandoffReason: handoff.reason,
+                humanHandoffUpdatedAt: new Date(),
+              }
+            : {}),
+        },
+      });
+      if (activities.length > 0) {
+        await tx.commercialActivity.createMany({
+          data: activities.map((activity) => ({
+            contactId: id,
+            type: activity.type,
+            source: activity.source,
+            title: activity.title,
+            description: activity.description ?? null,
+            metadata: activity.metadata ?? undefined,
+          })),
+        });
+      }
+
+      return {
+        appliedStatus,
+        appliedTags,
+        appliedHumanHandoff: handoffNewlyRequired,
+      };
+    });
+  }
+
+  /**
+   * Human operator clears commercial attention flag.
+   * No-op (no false activity) when attention was not required.
+   */
+  async resolveHumanHandoff(id: string) {
+    const existing = await this.prisma.contact.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Contacto no encontrado');
+
+    if (!existing.requiresHumanAttention) {
+      return this.getById(id);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contact.update({
+        where: { id },
+        data: {
+          requiresHumanAttention: false,
+          humanHandoffReason: null,
+          humanHandoffUpdatedAt: new Date(),
+        },
+      });
+      await tx.commercialActivity.create({
+        data: {
+          contactId: id,
+          type: CommercialActivityType.HUMAN_HANDOFF_RESOLVED,
+          source: CommercialActivitySource.USER,
+          title: 'Atención humana resuelta',
+          metadata: {
+            previousReason: existing.humanHandoffReason,
+          },
+        },
+      });
     });
 
     return this.getById(id);

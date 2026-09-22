@@ -80,29 +80,42 @@ export type CommercialSnapshot = {
   tags: string[];
 };
 
+export type DiffCommercialActivityOptions = {
+  source?: CommercialActivitySource;
+  statusMetadata?: Prisma.InputJsonObject;
+  tagsMetadata?: Prisma.InputJsonObject;
+};
+
 /**
- * Pure diff: build USER activity drafts for fields present in dto that actually changed.
+ * Pure diff: build activity drafts for fields present in dto that actually changed.
+ * Default source is USER (manual PATCH). Automation passes DEEPSEEK + audit metadata.
  * Omitted dto fields are ignored. Same-value fields produce no activity.
  */
 export function diffCommercialActivities(
   existing: CommercialSnapshot,
   dto: UpdateCommercialDto,
+  options: DiffCommercialActivityOptions = {},
 ): ActivityDraft[] {
   const out: ActivityDraft[] = [];
+  const source = options.source ?? CommercialActivitySource.USER;
 
   if (dto.leadStatus !== undefined && dto.leadStatus !== existing.leadStatus) {
     out.push({
       type: CommercialActivityType.STATUS_CHANGED,
-      source: CommercialActivitySource.USER,
+      source,
       title: `Estado cambiado a ${leadStatusLabelEs(dto.leadStatus)}`,
-      metadata: { from: existing.leadStatus, to: dto.leadStatus },
+      metadata: {
+        from: existing.leadStatus,
+        to: dto.leadStatus,
+        ...(options.statusMetadata ?? {}),
+      },
     });
   }
 
   if (dto.notes !== undefined && !notesEqual(existing.notes, dto.notes)) {
     out.push({
       type: CommercialActivityType.NOTES_UPDATED,
-      source: CommercialActivitySource.USER,
+      source,
       title: 'Notas actualizadas',
       // Do NOT store full old/new notes in description
     });
@@ -112,9 +125,13 @@ export function diffCommercialActivities(
     const { added, removed } = tagsDiff(existing.tags, dto.tags);
     out.push({
       type: CommercialActivityType.TAGS_UPDATED,
-      source: CommercialActivitySource.USER,
+      source,
       title: 'Etiquetas actualizadas',
-      metadata: { added, removed },
+      metadata: {
+        added,
+        removed,
+        ...(options.tagsMetadata ?? {}),
+      },
     });
   }
 

@@ -70,6 +70,7 @@
 - `firstAction` String @db.Text
 - `hfModel` String? — override de `HF_MODEL`
 - `globalAutoReplyEnabled` Boolean @default(false) — kill switch global de auto-respuestas
+- `commercialAutomationMode` enum CommercialAutomationMode @default(OFF) — OFF | OBSERVE | APPLY
 - `updatedAt` DateTime @updatedAt
 
 ## Auth en disco
@@ -81,6 +82,9 @@ Credenciales Baileys en `apps/api/.wa-auth/` (gitignore).
 - `AiMode`: AI | MANUAL
 - `LeadStatus`: NEW | IN_PROGRESS | INTERESTED | QUOTED | WON | LOST
 - `CommercialActivityType`: CONTACT_CREATED | STATUS_CHANGED | NOTES_UPDATED | TAGS_UPDATED
-- `CommercialActivitySource`: SYSTEM | USER | SEED
+- `CommercialActivitySource`: SYSTEM | USER | SEED | DEEPSEEK
+- `CommercialAutomationMode`: OFF | OBSERVE | APPLY
 
 See also `08-contact-commercial.md`, `12-commercial-activity-history.md`.
+
+See also `13-deepseek-commercial-decision-engine.md`.

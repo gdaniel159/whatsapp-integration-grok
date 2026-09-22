@@ -11,9 +11,11 @@ export type CommercialActivityType =
   | 'CONTACT_CREATED'
   | 'STATUS_CHANGED'
   | 'NOTES_UPDATED'
-  | 'TAGS_UPDATED';
+  | 'TAGS_UPDATED'
+  | 'HUMAN_HANDOFF_REQUESTED'
+  | 'HUMAN_HANDOFF_RESOLVED';
 
-export type CommercialActivitySource = 'SYSTEM' | 'USER' | 'SEED';
+export type CommercialActivitySource = 'SYSTEM' | 'USER' | 'SEED' | 'DEEPSEEK';
 
 export type CommercialActivity = {
   id: string;

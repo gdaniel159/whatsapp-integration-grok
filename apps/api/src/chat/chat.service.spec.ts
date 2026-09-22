@@ -57,6 +57,19 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       wa as never,
       contacts as never,
       autoReply as never,
+      {
+        handleInboundAsync: jest.fn(),
+        handleInbound: jest.fn(async () => ({
+          mode: 'OFF',
+          ran: false,
+          decision: null,
+          preview: null,
+          appliedStatus: null,
+          appliedTags: [],
+          outcome: 'DISABLED',
+          reason: 'Análisis comercial desactivado',
+        })),
+      } as never,
     );
 
     return { svc, prisma, events, wa, contacts, autoReply, createdMsg, conv };
@@ -110,6 +123,19 @@ describe('ChatService.sendMessage — unaffected by global kill switch', () => {
       {
         handleInboundAsync: jest.fn(),
         handleInbound: jest.fn(),
+      } as never,
+      {
+        handleInboundAsync: jest.fn(),
+        handleInbound: jest.fn(async () => ({
+          mode: 'OFF',
+          ran: false,
+          decision: null,
+          preview: null,
+          appliedStatus: null,
+          appliedTags: [],
+          outcome: 'DISABLED',
+          reason: 'off',
+        })),
       } as never,
     );
     await expect(svc.sendMessage('missing', 'x')).rejects.toBeInstanceOf(

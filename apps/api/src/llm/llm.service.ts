@@ -38,7 +38,12 @@ export class LlmService {
   async chatCompletion(
     systemPrompt: string,
     userMessage: string,
-    opts?: { model?: string; maxTokens?: number },
+    opts?: {
+      model?: string;
+      maxTokens?: number;
+      temperature?: number;
+      timeoutMs?: number;
+    },
   ): Promise<string | null> {
     const token = this.getToken();
     if (!token) {
@@ -51,6 +56,13 @@ export class LlmService {
     const model = opts?.model || (await this.resolveModel());
     const url = `${HF_ROUTER_BASE}/chat/completions`;
 
+    const controller = opts?.timeoutMs
+      ? new AbortController()
+      : undefined;
+    const timeout = controller
+      ? setTimeout(() => controller.abort(), opts!.timeoutMs)
+      : undefined;
+
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -58,6 +70,7 @@ export class LlmService {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        signal: controller?.signal,
         body: JSON.stringify({
           model,
           messages: [
@@ -65,7 +78,7 @@ export class LlmService {
             { role: 'user', content: userMessage },
           ],
           max_tokens: opts?.maxTokens ?? 512,
-          temperature: 0.4,
+          temperature: opts?.temperature ?? 0.4,
         }),
       });
 
@@ -89,6 +102,8 @@ export class LlmService {
         `HF request error: ${e instanceof Error ? e.message : e}`,
       );
       return null;
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 

@@ -475,6 +475,32 @@ async function main() {
   const cleaned = await cleanupDevMockContacts();
   console.log(`Cleaned ${cleaned} prior mock contact(s)`);
 
+  // DEV BusinessProfile fixture only — not a platform default.
+  await prisma.botSettings.upsert({
+    where: { id: 'default' },
+    update: {
+      businessName: 'DMX 4x4',
+      timezone: 'America/Lima',
+      businessHoursStart: '08:00',
+      businessHoursEnd: '18:00',
+    },
+    create: {
+      id: 'default',
+      welcomeMessage:
+        '¡Hola! 👋 Bienvenido/a a DMX 4x4. Soy el asistente virtual.',
+      firstAction:
+        'Escribe 1 para productos, 2 para horarios, o cuéntame en qué puedo ayudarte.',
+      hfModel: null,
+      globalAutoReplyEnabled: false,
+      commercialAutomationMode: 'OFF',
+      businessName: 'DMX 4x4',
+      timezone: 'America/Lima',
+      businessHoursStart: '08:00',
+      businessHoursEnd: '18:00',
+    },
+  });
+  console.log('Seed-dev OK — BotSettings BusinessProfile fixture (DMX 4x4 / America/Lima 08–18)');
+
   await seedScenarios();
   console.log(
     `Seed-dev OK — ${DEV_MOCK_CONTACT_JIDS.length} mock contacts with conversations/messages/activities`,

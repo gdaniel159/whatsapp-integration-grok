@@ -26,6 +26,7 @@ import {
   moveContactStatus,
   type LeadStatus,
 } from '@/lib/lead-status';
+import { handoffReasonLabel, type HandoffReason } from '@/lib/handoff-reason';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,9 @@ export interface PipelineContact {
   leadStatus?: LeadStatus;
   notes?: string | null;
   tags?: string[];
+  requiresHumanAttention?: boolean;
+  humanHandoffReason?: HandoffReason | null;
+  humanHandoffUpdatedAt?: string | null;
 }
 
 type ContactDetailLite = PipelineContact & {
@@ -95,8 +99,15 @@ function ContactCardBody({
     <Card className={cn('shadow-sm', className)}>
       <CardHeader className="p-3 pb-1 space-y-1">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-sm font-medium truncate leading-snug">
-            {contactDisplayName(contact)}
+          <CardTitle className="text-sm font-medium truncate leading-snug flex items-center gap-1.5">
+            {contact.requiresHumanAttention ? (
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-amber-500 shrink-0"
+                title="Requiere atención comercial"
+                aria-label="Requiere atención comercial"
+              />
+            ) : null}
+            <span className="truncate">{contactDisplayName(contact)}</span>
           </CardTitle>
           {hasNotes ? (
             <span
@@ -242,6 +253,7 @@ export function PipelineBoard({ onOpenContact, onOpenConversation }: Props) {
     null,
   );
   const [sheetLoading, setSheetLoading] = useState(false);
+  const [resolvingHandoff, setResolvingHandoff] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -384,6 +396,28 @@ export function PipelineBoard({ onOpenContact, onOpenConversation }: Props) {
     onOpenConversation(conversationId);
   };
 
+  const handleResolverAtencion = async () => {
+    if (!sheetContactId || !display?.requiresHumanAttention) return;
+    setResolvingHandoff(true);
+    try {
+      const updated = await api<PipelineContact>(
+        `/contacts/${sheetContactId}/resolve-human-handoff`,
+        { method: 'POST' },
+      );
+      setContacts((prev) =>
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
+      );
+      setSheetDetail((prev) =>
+        prev && prev.id === updated.id ? { ...prev, ...updated } : prev,
+      );
+      toast.success('Atención comercial marcada como resuelta');
+    } catch {
+      toast.error('No se pudo resolver la atención');
+    } finally {
+      setResolvingHandoff(false);
+    }
+  };
+
   const handleEditarContacto = () => {
     if (!sheetContactId) return;
     const id = sheetContactId;
@@ -485,6 +519,31 @@ export function PipelineBoard({ onOpenContact, onOpenConversation }: Props) {
 
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Requiere atención comercial
+                </p>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      display.requiresHumanAttention ? 'default' : 'outline'
+                    }
+                    className={
+                      display.requiresHumanAttention
+                        ? 'bg-amber-500 hover:bg-amber-500 text-white'
+                        : ''
+                    }
+                  >
+                    {display.requiresHumanAttention ? 'Sí' : 'No'}
+                  </Badge>
+                  {display.requiresHumanAttention ? (
+                    <span className="text-xs text-muted-foreground">
+                      Motivo: {handoffReasonLabel(display.humanHandoffReason)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   Teléfono
                 </p>
                 <p className="truncate">
@@ -549,6 +608,19 @@ export function PipelineBoard({ onOpenContact, onOpenConversation }: Props) {
             >
               Ver conversación
             </Button>
+            {display?.requiresHumanAttention ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                disabled={sheetLoading || resolvingHandoff}
+                onClick={handleResolverAtencion}
+              >
+                {resolvingHandoff
+                  ? 'Guardando…'
+                  : 'Marcar atención resuelta'}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
