@@ -12,7 +12,7 @@ Commercial lead data lives **on Contact** — there is **no** separate Lead mode
 ### LeadStatus
 `NEW` | `IN_PROGRESS` | `INTERESTED` | `QUOTED` | `WON` | `LOST`
 
-Spanish UI labels: Nuevo, En conversación, Interesado, Cotización, Ganado, Perdido.
+Spanish UI labels: Nuevo, En seguimiento, Interesado, Cotizado, Ganado, Perdido.
 
 ## API
 - `GET /contacts` / `GET /contacts/:id` — already return full Contact (new fields included).

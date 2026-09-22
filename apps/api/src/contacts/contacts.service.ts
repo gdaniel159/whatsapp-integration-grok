@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Contact, LeadStatus } from '@prisma/client';
+import { Contact } from '@prisma/client';
 import { UpdateCommercialDto } from './update-commercial.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -7,6 +7,11 @@ import {
   normalizeWaJid,
   phoneE164FromJid,
 } from './jid.util';
+import {
+  commercialUpdateData,
+  contactCreatedActivity,
+  diffCommercialActivities,
+} from './commercial-activity.util';
 
 export type UpsertFromWaJidOpts = {
   pushName?: string | null;
@@ -47,21 +52,51 @@ export class ContactsService {
     };
   }
 
+  async listActivities(contactId: string, limit = 50) {
+    const existing = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Contacto no encontrado');
+
+    const take = Math.min(Math.max(1, limit || 50), 200);
+    return this.prisma.commercialActivity.findMany({
+      where: { contactId },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+  }
 
   async updateCommercial(id: string, dto: UpdateCommercialDto) {
     const existing = await this.prisma.contact.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Contacto no encontrado');
 
-    const data: {
-      leadStatus?: LeadStatus;
-      notes?: string;
-      tags?: string[];
-    } = {};
-    if (dto.leadStatus !== undefined) data.leadStatus = dto.leadStatus;
-    if (dto.notes !== undefined) data.notes = dto.notes;
-    if (dto.tags !== undefined) data.tags = dto.tags;
+    const data = commercialUpdateData(dto);
+    const activities = diffCommercialActivities(
+      {
+        leadStatus: existing.leadStatus,
+        notes: existing.notes,
+        tags: existing.tags,
+      },
+      dto,
+    );
 
-    await this.prisma.contact.update({ where: { id }, data });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contact.update({ where: { id }, data });
+      if (activities.length > 0) {
+        await tx.commercialActivity.createMany({
+          data: activities.map((a) => ({
+            contactId: id,
+            type: a.type,
+            source: a.source,
+            title: a.title,
+            description: a.description ?? null,
+            metadata: a.metadata ?? undefined,
+          })),
+        });
+      }
+    });
+
     return this.getById(id);
   }
 
@@ -86,15 +121,27 @@ export class ContactsService {
     });
 
     if (!existing) {
-      return this.prisma.contact.create({
-        data: {
-          waJid,
-          phoneE164,
-          displayName: pushName,
-          profileName: pushName,
-          firstSeenAt: seenAt,
-          lastSeenAt: seenAt,
-        },
+      const createdActivity = contactCreatedActivity();
+      return this.prisma.$transaction(async (tx) => {
+        const contact = await tx.contact.create({
+          data: {
+            waJid,
+            phoneE164,
+            displayName: pushName,
+            profileName: pushName,
+            firstSeenAt: seenAt,
+            lastSeenAt: seenAt,
+          },
+        });
+        await tx.commercialActivity.create({
+          data: {
+            contactId: contact.id,
+            type: createdActivity.type,
+            source: createdActivity.source,
+            title: createdActivity.title,
+          },
+        });
+        return contact;
       });
     }
 

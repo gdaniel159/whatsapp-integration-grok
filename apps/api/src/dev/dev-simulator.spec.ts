@@ -48,40 +48,56 @@ function makePipeline() {
   let globalAutoReplyEnabled = false;
   let aiMode: 'AI' | 'MANUAL' = 'AI';
 
+  const contactApi = {
+    findUnique: jest.fn(async ({ where }: { where: { waJid: string } }) => {
+      return contactsStore.get(where.waJid) ?? null;
+    }),
+    create: jest.fn(async ({ data }: { data: Partial<ContactRow> }) => {
+      const row: ContactRow = {
+        id: `c${++cSeq}`,
+        waJid: data.waJid!,
+        phoneE164: data.phoneE164 ?? null,
+        displayName: data.displayName ?? null,
+        profileName: data.profileName ?? null,
+        firstSeenAt: data.firstSeenAt ?? new Date(),
+        lastSeenAt: data.lastSeenAt ?? null,
+      };
+      contactsStore.set(row.waJid, row);
+      return row;
+    }),
+    update: jest.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Partial<ContactRow>;
+      }) => {
+        const existing = [...contactsStore.values()].find(
+          (c) => c.id === where.id,
+        )!;
+        Object.assign(existing, data);
+        return existing;
+      },
+    ),
+  };
+
+  const commercialActivityApi = {
+    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => data),
+    createMany: jest.fn(async ({ data }: { data: unknown[] }) => ({
+      count: data.length,
+    })),
+  };
+
   const contactsPrisma = {
-    contact: {
-      findUnique: jest.fn(async ({ where }: { where: { waJid: string } }) => {
-        return contactsStore.get(where.waJid) ?? null;
+    contact: contactApi,
+    commercialActivity: commercialActivityApi,
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        contact: contactApi,
+        commercialActivity: commercialActivityApi,
       }),
-      create: jest.fn(async ({ data }: { data: Partial<ContactRow> }) => {
-        const row: ContactRow = {
-          id: `c${++cSeq}`,
-          waJid: data.waJid!,
-          phoneE164: data.phoneE164 ?? null,
-          displayName: data.displayName ?? null,
-          profileName: data.profileName ?? null,
-          firstSeenAt: data.firstSeenAt ?? new Date(),
-          lastSeenAt: data.lastSeenAt ?? null,
-        };
-        contactsStore.set(row.waJid, row);
-        return row;
-      }),
-      update: jest.fn(
-        async ({
-          where,
-          data,
-        }: {
-          where: { id: string };
-          data: Partial<ContactRow>;
-        }) => {
-          const existing = [...contactsStore.values()].find(
-            (c) => c.id === where.id,
-          )!;
-          Object.assign(existing, data);
-          return existing;
-        },
-      ),
-    },
+    ),
   };
 
   const contacts = new ContactsService(contactsPrisma as never);

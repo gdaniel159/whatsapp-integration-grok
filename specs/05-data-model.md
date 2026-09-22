@@ -21,6 +21,16 @@
 - `tags` String[] @default([]) — free-form labels
 - `createdAt` / `updatedAt`
 - `conversations` Conversation[]
+- `commercialActivities` CommercialActivity[]
+
+
+### CommercialActivity
+- `id` cuid; `contactId` → Contact (`onDelete: Cascade`)
+- `type` enum CommercialActivityType: CONTACT_CREATED | STATUS_CHANGED | NOTES_UPDATED | TAGS_UPDATED
+- `source` enum CommercialActivitySource: SYSTEM | USER | SEED (AI reserved later)
+- `title` String; `description` String?; `metadata` Json?; `createdAt`
+- @@index([contactId, createdAt])
+- Generated only by ContactsService (never frontend / never per Message). See `12-commercial-activity-history.md`.
 
 ### Conversation
 - `id` String @id @default(cuid())
@@ -70,5 +80,7 @@ Credenciales Baileys en `apps/api/.wa-auth/` (gitignore).
 - `WaSessionStatus`: DISCONNECTED | QR | CONNECTED
 - `AiMode`: AI | MANUAL
 - `LeadStatus`: NEW | IN_PROGRESS | INTERESTED | QUOTED | WON | LOST
+- `CommercialActivityType`: CONTACT_CREATED | STATUS_CHANGED | NOTES_UPDATED | TAGS_UPDATED
+- `CommercialActivitySource`: SYSTEM | USER | SEED
 
-See also `08-contact-commercial.md`.
+See also `08-contact-commercial.md`, `12-commercial-activity-history.md`.

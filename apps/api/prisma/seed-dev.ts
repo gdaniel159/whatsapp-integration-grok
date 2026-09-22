@@ -1,9 +1,15 @@
 /**
  * DEV-only commercial mock contacts.
  * Idempotent: deletes ONLY the exact 8 simulator JIDs below (and their
- * conversations/messages), then recreates them. Never touches other contacts.
+ * conversations/messages/activities), then recreates them. Never touches other contacts.
  */
-import { LeadStatus, PrismaClient } from '@prisma/client';
+import {
+  CommercialActivitySource,
+  CommercialActivityType,
+  LeadStatus,
+  Prisma,
+  PrismaClient,
+} from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -19,6 +25,15 @@ export const DEV_MOCK_CONTACT_JIDS = [
   'mock-diego@simulator.local',
 ] as const;
 
+type SeedActivity = {
+  type: CommercialActivityType;
+  title: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  /** Minutes before `now` — larger = older. */
+  minutesAgo: number;
+};
+
 type MockScenario = {
   waJid: (typeof DEV_MOCK_CONTACT_JIDS)[number];
   displayName: string;
@@ -26,6 +41,7 @@ type MockScenario = {
   notes: string;
   tags: string[];
   messages: Array<{ direction: 'IN' | 'OUT'; body: string; hoursAgo: number }>;
+  activities: SeedActivity[];
 };
 
 const SCENARIOS: MockScenario[] = [
@@ -40,6 +56,13 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: '¡Hola Carlos! Sí, tenemos parachoques, estribos y racks para Hilux.', hoursAgo: 1.8 },
       { direction: 'IN', body: 'Ok gracias, luego les escribo', hoursAgo: 1.5 },
     ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 130,
+      },
+    ],
   },
   {
     waJid: 'mock-maria@simulator.local',
@@ -52,6 +75,33 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: 'Claro María. Tenemos kit completo de protección para Ranger.', hoursAgo: 25 },
       { direction: 'IN', body: 'Me puedes pasar fotos y medidas?', hoursAgo: 24 },
       { direction: 'OUT', body: 'Te envío el catálogo en un momento.', hoursAgo: 23 },
+    ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 1600,
+      },
+      {
+        type: CommercialActivityType.NOTES_UPDATED,
+        title: 'Notas actualizadas',
+        minutesAgo: 1550,
+      },
+      {
+        type: CommercialActivityType.TAGS_UPDATED,
+        title: 'Etiquetas actualizadas',
+        metadata: {
+          added: ['Ford', 'Ranger', 'Protección'],
+          removed: [],
+        },
+        minutesAgo: 1520,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 1400,
+      },
     ],
   },
   {
@@ -67,6 +117,34 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: 'Perfecto. El set aluminio está en stock.', hoursAgo: 47 },
       { direction: 'IN', body: 'Genial, me interesa. ¿Cuánto sale instalado?', hoursAgo: 30 },
     ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 3100,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 3000,
+      },
+      {
+        type: CommercialActivityType.TAGS_UPDATED,
+        title: 'Etiquetas actualizadas',
+        metadata: {
+          added: ['Jeep', 'Wrangler', 'Estribos'],
+          removed: [],
+        },
+        minutesAgo: 2900,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Interesado',
+        metadata: { from: 'IN_PROGRESS', to: 'INTERESTED' },
+        minutesAgo: 2000,
+      },
+    ],
   },
   {
     waJid: 'mock-luis@simulator.local',
@@ -79,6 +157,36 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: 'Luis, te armo la cotización con instalación incluida.', hoursAgo: 71 },
       { direction: 'OUT', body: 'Cotización: Parachoque S/ 2,450 + instalación S/ 180. Válida 7 días.', hoursAgo: 70 },
       { direction: 'IN', body: 'Recibido, lo reviso con mi jefe', hoursAgo: 68 },
+    ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 4500,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 4400,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Interesado',
+        metadata: { from: 'IN_PROGRESS', to: 'INTERESTED' },
+        minutesAgo: 4300,
+      },
+      {
+        type: CommercialActivityType.NOTES_UPDATED,
+        title: 'Notas actualizadas',
+        minutesAgo: 4250,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Cotizado',
+        metadata: { from: 'INTERESTED', to: 'QUOTED' },
+        minutesAgo: 4200,
+      },
     ],
   },
   {
@@ -93,6 +201,43 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'IN', body: 'Retiro en taller el viernes', hoursAgo: 94 },
       { direction: 'OUT', body: 'Listo, te esperamos el viernes de 9 a 13.', hoursAgo: 93 },
     ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 6000,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 5800,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Interesado',
+        metadata: { from: 'IN_PROGRESS', to: 'INTERESTED' },
+        minutesAgo: 5600,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Cotizado',
+        metadata: { from: 'INTERESTED', to: 'QUOTED' },
+        minutesAgo: 5400,
+      },
+      {
+        type: CommercialActivityType.TAGS_UPDATED,
+        title: 'Etiquetas actualizadas',
+        metadata: { added: ['ganado'], removed: [] },
+        minutesAgo: 5300,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Ganado',
+        metadata: { from: 'QUOTED', to: 'WON' },
+        minutesAgo: 5200,
+      },
+    ],
   },
   {
     waJid: 'mock-pedro@simulator.local',
@@ -106,6 +251,36 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'IN', body: 'Encontré uno más barato, gracias igual', hoursAgo: 100 },
       { direction: 'OUT', body: 'Entendido. Cualquier cosa aquí estamos.', hoursAgo: 99 },
     ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 7500,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 7400,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Cotizado',
+        metadata: { from: 'IN_PROGRESS', to: 'QUOTED' },
+        minutesAgo: 7200,
+      },
+      {
+        type: CommercialActivityType.NOTES_UPDATED,
+        title: 'Notas actualizadas',
+        minutesAgo: 6050,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Perdido',
+        metadata: { from: 'QUOTED', to: 'LOST' },
+        minutesAgo: 6000,
+      },
+    ],
   },
   {
     waJid: 'mock-sofia@simulator.local',
@@ -118,6 +293,28 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: 'Hola Sofía. Tenemos pack combo con descuento.', hoursAgo: 7.5 },
       { direction: 'IN', body: 'Qué incluye exactamente el pack?', hoursAgo: 6 },
       { direction: 'OUT', body: 'Parachoque delantero + protección inferior + tornillería.', hoursAgo: 5.5 },
+    ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 500,
+      },
+      {
+        type: CommercialActivityType.TAGS_UPDATED,
+        title: 'Etiquetas actualizadas',
+        metadata: {
+          added: ['Toyota', 'Hilux', 'Protección', 'Parachoque'],
+          removed: [],
+        },
+        minutesAgo: 450,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Interesado',
+        metadata: { from: 'NEW', to: 'INTERESTED' },
+        minutesAgo: 360,
+      },
     ],
   },
   {
@@ -133,10 +330,40 @@ const SCENARIOS: MockScenario[] = [
       { direction: 'OUT', body: 'Instalación incluida en el pack. Cotización válida 10 días.', hoursAgo: 17 },
       { direction: 'IN', body: 'Perfecto, lo comento en casa y te confirmo', hoursAgo: 10 },
     ],
+    activities: [
+      {
+        type: CommercialActivityType.CONTACT_CREATED,
+        title: 'Contacto creado',
+        minutesAgo: 1300,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a En seguimiento',
+        metadata: { from: 'NEW', to: 'IN_PROGRESS' },
+        minutesAgo: 1200,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Interesado',
+        metadata: { from: 'IN_PROGRESS', to: 'INTERESTED' },
+        minutesAgo: 1100,
+      },
+      {
+        type: CommercialActivityType.NOTES_UPDATED,
+        title: 'Notas actualizadas',
+        minutesAgo: 1050,
+      },
+      {
+        type: CommercialActivityType.STATUS_CHANGED,
+        title: 'Estado cambiado a Cotizado',
+        metadata: { from: 'INTERESTED', to: 'QUOTED' },
+        minutesAgo: 1000,
+      },
+    ],
   },
 ];
 
-/** Delete only the exact mock JIDs and cascade their conversations/messages. */
+/** Delete only the exact mock JIDs and cascade their conversations/messages/activities. */
 export async function cleanupDevMockContacts(
   client: PrismaClient = prisma,
 ): Promise<number> {
@@ -156,6 +383,13 @@ export async function cleanupDevMockContacts(
       ],
     },
   });
+
+  // CommercialActivity cascades on contact delete; explicit delete is fine too.
+  if (ids.length) {
+    await client.commercialActivity.deleteMany({
+      where: { contactId: { in: ids } },
+    });
+  }
 
   const deleted = await client.contact.deleteMany({
     where: { waJid: { in: jids } },
@@ -188,6 +422,24 @@ async function seedScenarios() {
         tags: s.tags,
       },
     });
+
+    // Older first (coherent timeline)
+    const orderedActs = [...s.activities].sort(
+      (a, b) => b.minutesAgo - a.minutesAgo,
+    );
+    for (const act of orderedActs) {
+      await prisma.commercialActivity.create({
+        data: {
+          contactId: contact.id,
+          type: act.type,
+          source: CommercialActivitySource.SEED,
+          title: act.title,
+          description: act.description ?? null,
+          metadata: (act.metadata as Prisma.InputJsonValue | undefined) ?? undefined,
+          createdAt: new Date(now - act.minutesAgo * 60_000),
+        },
+      });
+    }
 
     const conversation = await prisma.conversation.create({
       data: {
@@ -225,7 +477,7 @@ async function main() {
 
   await seedScenarios();
   console.log(
-    `Seed-dev OK — ${DEV_MOCK_CONTACT_JIDS.length} mock contacts with conversations/messages`,
+    `Seed-dev OK — ${DEV_MOCK_CONTACT_JIDS.length} mock contacts with conversations/messages/activities`,
   );
 }
 

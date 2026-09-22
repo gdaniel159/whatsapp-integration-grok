@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ContactsService } from './contacts.service';
 import { UpdateCommercialDto } from './update-commercial.dto';
@@ -11,6 +19,18 @@ export class ContactsController {
   @Get()
   list() {
     return this.contacts.list();
+  }
+
+  /** Registered before GET :id so Nest matches /contacts/:id/activities. */
+  @Get(':id/activities')
+  listActivities(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed =
+      limit !== undefined && limit !== '' ? Number.parseInt(limit, 10) : 50;
+    const take = Number.isFinite(parsed) ? parsed : 50;
+    return this.contacts.listActivities(id, take);
   }
 
   @Get(':id')

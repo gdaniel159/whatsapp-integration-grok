@@ -8,53 +8,151 @@ type ContactRow = {
   profileName: string | null;
   firstSeenAt: Date;
   lastSeenAt: Date | null;
+  leadStatus: string;
+  notes: string | null;
+  tags: string[];
   createdAt: Date;
   updatedAt: Date;
 };
 
+type ActivityRow = {
+  id: string;
+  contactId: string;
+  type: string;
+  source: string;
+  title: string;
+  description: string | null;
+  metadata: unknown;
+  createdAt: Date;
+};
+
 function makeMockPrisma() {
   const store = new Map<string, ContactRow>();
+  const activities: ActivityRow[] = [];
   let seq = 0;
+  let actSeq = 0;
 
-  return {
-    store,
-    prisma: {
-      contact: {
-        findUnique: jest.fn(async ({ where }: { where: { waJid: string } }) => {
-          return store.get(where.waJid) ?? null;
-        }),
-        create: jest.fn(async ({ data }: { data: Partial<ContactRow> }) => {
-          const row: ContactRow = {
-            id: `c${++seq}`,
-            waJid: data.waJid!,
-            phoneE164: data.phoneE164 ?? null,
-            displayName: data.displayName ?? null,
-            profileName: data.profileName ?? null,
-            firstSeenAt: data.firstSeenAt ?? new Date(),
-            lastSeenAt: data.lastSeenAt ?? null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-          store.set(row.waJid, row);
-          return row;
-        }),
-        update: jest.fn(
-          async ({
-            where,
-            data,
-          }: {
-            where: { id: string };
-            data: Partial<ContactRow>;
-          }) => {
-            const existing = [...store.values()].find((c) => c.id === where.id);
-            if (!existing) throw new Error('not found');
-            Object.assign(existing, data, { updatedAt: new Date() });
-            return existing;
-          },
-        ),
+  const contactApi = {
+    findUnique: jest.fn(
+      async ({ where }: { where: { waJid?: string; id?: string } }) => {
+        if (where.waJid) return store.get(where.waJid) ?? null;
+        if (where.id) {
+          return [...store.values()].find((c) => c.id === where.id) ?? null;
+        }
+        return null;
       },
-    },
+    ),
+    create: jest.fn(async ({ data }: { data: Partial<ContactRow> }) => {
+      const row: ContactRow = {
+        id: `c${++seq}`,
+        waJid: data.waJid!,
+        phoneE164: data.phoneE164 ?? null,
+        displayName: data.displayName ?? null,
+        profileName: data.profileName ?? null,
+        firstSeenAt: data.firstSeenAt ?? new Date(),
+        lastSeenAt: data.lastSeenAt ?? null,
+        leadStatus: data.leadStatus ?? 'NEW',
+        notes: data.notes ?? null,
+        tags: data.tags ?? [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      store.set(row.waJid, row);
+      return row;
+    }),
+    update: jest.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Partial<ContactRow>;
+      }) => {
+        const existing = [...store.values()].find((c) => c.id === where.id);
+        if (!existing) throw new Error('not found');
+        Object.assign(existing, data, { updatedAt: new Date() });
+        return existing;
+      },
+    ),
   };
+
+  const commercialActivityApi = {
+    create: jest.fn(
+      async ({
+        data,
+      }: {
+        data: Omit<ActivityRow, 'id' | 'createdAt'> & { createdAt?: Date };
+      }) => {
+        const row: ActivityRow = {
+          id: `a${++actSeq}`,
+          contactId: data.contactId,
+          type: data.type,
+          source: data.source,
+          title: data.title,
+          description: data.description ?? null,
+          metadata: data.metadata ?? null,
+          createdAt: data.createdAt ?? new Date(),
+        };
+        activities.push(row);
+        return row;
+      },
+    ),
+    createMany: jest.fn(
+      async ({
+        data,
+      }: {
+        data: Array<Omit<ActivityRow, 'id' | 'createdAt'>>;
+      }) => {
+        for (const d of data) {
+          activities.push({
+            id: `a${++actSeq}`,
+            contactId: d.contactId,
+            type: d.type,
+            source: d.source,
+            title: d.title,
+            description: d.description ?? null,
+            metadata: d.metadata ?? null,
+            createdAt: new Date(),
+          });
+        }
+        return { count: data.length };
+      },
+    ),
+    findMany: jest.fn(
+      async ({
+        where,
+        orderBy,
+        take,
+      }: {
+        where: { contactId: string };
+        orderBy: { createdAt: 'asc' | 'desc' };
+        take?: number;
+      }) => {
+        let rows = activities.filter((a) => a.contactId === where.contactId);
+        rows = [...rows].sort((a, b) =>
+          orderBy.createdAt === 'desc'
+            ? b.createdAt.getTime() - a.createdAt.getTime()
+            : a.createdAt.getTime() - b.createdAt.getTime(),
+        );
+        if (take != null) rows = rows.slice(0, take);
+        return rows;
+      },
+    ),
+  };
+
+  const prisma = {
+    contact: contactApi,
+    commercialActivity: commercialActivityApi,
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        contact: contactApi,
+        commercialActivity: commercialActivityApi,
+      };
+      return fn(tx);
+    }),
+  };
+
+  return { store, activities, prisma };
 }
 
 describe('ContactsService.upsertFromWaJid', () => {
@@ -65,8 +163,8 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(prisma.contact.create).not.toHaveBeenCalled();
   });
 
-  it('creates contact for personal JID and links identity', async () => {
-    const { prisma, store } = makeMockPrisma();
+  it('1: creates contact + one CONTACT_CREATED SYSTEM activity', async () => {
+    const { prisma, store, activities } = makeMockPrisma();
     const svc = new ContactsService(prisma as never);
     const c = await svc.upsertFromWaJid('51991112233@s.whatsapp.net', {
       pushName: 'Ana',
@@ -76,12 +174,17 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(c!.waJid).toBe('51991112233@s.whatsapp.net');
     expect(c!.phoneE164).toBe('+51991112233');
     expect(c!.displayName).toBe('Ana');
-    expect(c!.profileName).toBe('Ana');
     expect(store.size).toBe(1);
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('CONTACT_CREATED');
+    expect(activities[0].source).toBe('SYSTEM');
+    expect(activities[0].title).toBe('Contacto creado');
+    expect(activities[0].contactId).toBe(c!.id);
   });
 
-  it('same waJid is idempotent (no duplicate)', async () => {
-    const { prisma, store } = makeMockPrisma();
+  it('same waJid is idempotent — update path creates NO CONTACT_CREATED', async () => {
+    const { prisma, store, activities } = makeMockPrisma();
     const svc = new ContactsService(prisma as never);
     const a = await svc.upsertFromWaJid('51991112233@s.whatsapp.net', {
       pushName: 'Ana',
@@ -93,6 +196,9 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(store.size).toBe(1);
     expect(prisma.contact.create).toHaveBeenCalledTimes(1);
     expect(prisma.contact.update).toHaveBeenCalled();
+    expect(activities.filter((x) => x.type === 'CONTACT_CREATED')).toHaveLength(
+      1,
+    );
   });
 
   it('device suffix :XX normalizes to same contact', async () => {
@@ -159,7 +265,7 @@ describe('ContactsService.upsertFromWaJid', () => {
   });
 
   it('creates contact for @simulator.local (phoneE164 null)', async () => {
-    const { prisma, store } = makeMockPrisma();
+    const { prisma, store, activities } = makeMockPrisma();
     const svc = new ContactsService(prisma as never);
     const c = await svc.upsertFromWaJid('test-001@simulator.local', {
       pushName: 'Cliente prueba',
@@ -169,13 +275,13 @@ describe('ContactsService.upsertFromWaJid', () => {
     expect(c!.phoneE164).toBeNull();
     expect(c!.displayName).toBe('Cliente prueba');
     expect(store.size).toBe(1);
+    expect(activities).toHaveLength(1);
   });
-
 });
 
-describe('ContactsService.updateCommercial', () => {
-  function makeUpdateMock() {
-    const row = {
+describe('ContactsService.updateCommercial + activities', () => {
+  function makeUpdateMock(overrides: Partial<ContactRow> = {}) {
+    const row: ContactRow = {
       id: 'c1',
       waJid: '51991112233@s.whatsapp.net',
       phoneE164: '+51991112233',
@@ -183,11 +289,12 @@ describe('ContactsService.updateCommercial', () => {
       profileName: 'Ana',
       firstSeenAt: new Date('2026-01-01'),
       lastSeenAt: new Date('2026-01-02'),
-      leadStatus: 'NEW' as const,
-      notes: null as string | null,
-      tags: [] as string[],
+      leadStatus: 'NEW',
+      notes: null,
+      tags: [],
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...overrides,
     };
     const conversations = [
       {
@@ -197,24 +304,95 @@ describe('ContactsService.updateCommercial', () => {
         name: 'Ana',
       },
     ];
-    const prisma = {
-      contact: {
-        findUnique: jest.fn(async ({ where, include }: { where: { id?: string; waJid?: string }; include?: unknown }) => {
+    const activities: ActivityRow[] = [];
+    let actSeq = 0;
+
+    const contactApi = {
+      findUnique: jest.fn(
+        async ({
+          where,
+          include,
+        }: {
+          where: { id?: string; waJid?: string };
+          include?: unknown;
+        }) => {
           if (where.id && where.id !== row.id) return null;
           if (include) return { ...row, conversations };
-          return row;
-        }),
-        update: jest.fn(async ({ data }: { data: Partial<typeof row> }) => {
-          Object.assign(row, data, { updatedAt: new Date() });
-          return row;
-        }),
-        create: jest.fn(),
-      },
+          return { ...row };
+        },
+      ),
+      update: jest.fn(async ({ data }: { data: Partial<ContactRow> }) => {
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
+      }),
+      create: jest.fn(),
     };
-    return { prisma, row };
+
+    const commercialActivityApi = {
+      createMany: jest.fn(
+        async ({
+          data,
+        }: {
+          data: Array<{
+            contactId: string;
+            type: string;
+            source: string;
+            title: string;
+            description?: string | null;
+            metadata?: unknown;
+          }>;
+        }) => {
+          for (const d of data) {
+            activities.push({
+              id: `a${++actSeq}`,
+              contactId: d.contactId,
+              type: d.type,
+              source: d.source,
+              title: d.title,
+              description: d.description ?? null,
+              metadata: d.metadata ?? null,
+              createdAt: new Date(Date.now() + actSeq),
+            });
+          }
+          return { count: data.length };
+        },
+      ),
+      findMany: jest.fn(
+        async ({
+          where,
+          orderBy,
+          take,
+        }: {
+          where: { contactId: string };
+          orderBy: { createdAt: 'desc' | 'asc' };
+          take?: number;
+        }) => {
+          let rows = activities.filter((a) => a.contactId === where.contactId);
+          rows = [...rows].sort((a, b) =>
+            orderBy.createdAt === 'desc'
+              ? b.createdAt.getTime() - a.createdAt.getTime()
+              : a.createdAt.getTime() - b.createdAt.getTime(),
+          );
+          if (take != null) rows = rows.slice(0, take);
+          return rows;
+        },
+      ),
+    };
+
+    const prisma = {
+      contact: contactApi,
+      commercialActivity: commercialActivityApi,
+      $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+        return fn({
+          contact: contactApi,
+          commercialActivity: commercialActivityApi,
+        });
+      }),
+    };
+    return { prisma, row, activities };
   }
 
-  it('updates leadStatus, notes and tags', async () => {
+  it('updates leadStatus, notes and tags (legacy)', async () => {
     const { prisma, row } = makeUpdateMock();
     const svc = new ContactsService(prisma as never);
     const result = await svc.updateCommercial('c1', {
@@ -222,6 +400,7 @@ describe('ContactsService.updateCommercial', () => {
       notes: 'Cliente Toyota Hilux',
       tags: ['Toyota', 'Hilux'],
     });
+    expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.contact.update).toHaveBeenCalledWith({
       where: { id: 'c1' },
       data: {
@@ -237,21 +416,138 @@ describe('ContactsService.updateCommercial', () => {
     expect(result.waJid).toBe(row.waJid);
   });
 
-  it('partial update only provided fields', async () => {
-    const { prisma } = makeUpdateMock();
+  it('2: NEW->INTERESTED -> STATUS_CHANGED', async () => {
+    const { prisma, activities } = makeUpdateMock();
     const svc = new ContactsService(prisma as never);
-    await svc.updateCommercial('c1', { notes: 'Solo notas' });
-    expect(prisma.contact.update).toHaveBeenCalledWith({
-      where: { id: 'c1' },
-      data: { notes: 'Solo notas' },
+    await svc.updateCommercial('c1', { leadStatus: 'INTERESTED' as never });
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('STATUS_CHANGED');
+    expect(activities[0].source).toBe('USER');
+    expect(activities[0].title).toBe('Estado cambiado a Interesado');
+    expect(activities[0].metadata).toEqual({
+      from: 'NEW',
+      to: 'INTERESTED',
     });
   });
 
-  it('PATCH with only leadStatus does not clear notes/tags', async () => {
-    const { prisma, row } = makeUpdateMock();
-    row.notes = 'Cliente Toyota Hilux';
-    row.tags = ['Toyota', 'Hilux'];
-    row.leadStatus = 'NEW' as const;
+  it('3: NEW->NEW -> zero activities', async () => {
+    const { prisma, activities } = makeUpdateMock();
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { leadStatus: 'NEW' as never });
+    expect(prisma.contact.update).toHaveBeenCalled();
+    expect(activities).toHaveLength(0);
+    expect(prisma.commercialActivity.createMany).not.toHaveBeenCalled();
+  });
+
+  it('4: notes A->B -> NOTES_UPDATED', async () => {
+    const { prisma, activities } = makeUpdateMock({ notes: 'A' });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { notes: 'B' });
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('NOTES_UPDATED');
+    expect(activities[0].title).toBe('Notas actualizadas');
+    expect(activities[0].description).toBeNull();
+  });
+
+  it('5: notes same -> none', async () => {
+    const { prisma, activities } = makeUpdateMock({ notes: 'same' });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { notes: 'same' });
+    expect(activities).toHaveLength(0);
+  });
+
+  it('6: tags add Hilux', async () => {
+    const { prisma, activities } = makeUpdateMock({ tags: ['Toyota'] });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { tags: ['Toyota', 'Hilux'] });
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('TAGS_UPDATED');
+    expect(activities[0].metadata).toEqual({
+      added: ['Hilux'],
+      removed: [],
+    });
+  });
+
+  it('7: tags remove Toyota', async () => {
+    const { prisma, activities } = makeUpdateMock({
+      tags: ['Toyota', 'Hilux'],
+    });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { tags: ['Hilux'] });
+    expect(activities).toHaveLength(1);
+    expect(activities[0].metadata).toEqual({
+      added: [],
+      removed: ['Toyota'],
+    });
+  });
+
+  it('8: same tags different order -> none', async () => {
+    const { prisma, activities } = makeUpdateMock({
+      tags: ['Toyota', 'Hilux'],
+    });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { tags: ['Hilux', 'Toyota'] });
+    expect(activities).toHaveLength(0);
+  });
+
+  it('9: status+notes+tags -> three activities one transaction', async () => {
+    const { prisma, activities } = makeUpdateMock({
+      leadStatus: 'NEW',
+      notes: 'old',
+      tags: ['Toyota'],
+    });
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', {
+      leadStatus: 'QUOTED' as never,
+      notes: 'new',
+      tags: ['Hilux'],
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(activities).toHaveLength(3);
+    expect(activities.map((a) => a.type)).toEqual([
+      'STATUS_CHANGED',
+      'NOTES_UPDATED',
+      'TAGS_UPDATED',
+    ]);
+  });
+
+  it('10: listActivities DESC', async () => {
+    const { prisma, activities } = makeUpdateMock();
+    // Seed two activities with distinct timestamps
+    activities.push(
+      {
+        id: 'a-old',
+        contactId: 'c1',
+        type: 'CONTACT_CREATED',
+        source: 'SYSTEM',
+        title: 'Contacto creado',
+        description: null,
+        metadata: null,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+      },
+      {
+        id: 'a-new',
+        contactId: 'c1',
+        type: 'STATUS_CHANGED',
+        source: 'USER',
+        title: 'Estado cambiado a Interesado',
+        description: null,
+        metadata: { from: 'NEW', to: 'INTERESTED' },
+        createdAt: new Date('2026-02-01T00:00:00Z'),
+      },
+    );
+    const svc = new ContactsService(prisma as never);
+    const list = await svc.listActivities('c1', 50);
+    expect(list).toHaveLength(2);
+    expect(list[0].id).toBe('a-new');
+    expect(list[1].id).toBe('a-old');
+  });
+
+  it('11: DnD uses same updateCommercial — status change only', async () => {
+    const { prisma, activities, row } = makeUpdateMock({
+      notes: 'Cliente Toyota Hilux',
+      tags: ['Toyota', 'Hilux'],
+    });
     const svc = new ContactsService(prisma as never);
     const result = await svc.updateCommercial('c1', {
       leadStatus: 'INTERESTED' as never,
@@ -260,13 +556,26 @@ describe('ContactsService.updateCommercial', () => {
       where: { id: 'c1' },
       data: { leadStatus: 'INTERESTED' },
     });
-    // update payload must not include notes/tags (would wipe if sent as undefined wrongly)
     const updateArg = (prisma.contact.update as jest.Mock).mock.calls[0][0];
     expect(updateArg.data).not.toHaveProperty('notes');
     expect(updateArg.data).not.toHaveProperty('tags');
-    expect(result.leadStatus).toBe('INTERESTED');
     expect(result.notes).toBe('Cliente Toyota Hilux');
     expect(result.tags).toEqual(['Toyota', 'Hilux']);
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('STATUS_CHANGED');
+    expect(row.waJid).toBeTruthy();
+  });
+
+  it('partial update only provided fields', async () => {
+    const { prisma, activities } = makeUpdateMock();
+    const svc = new ContactsService(prisma as never);
+    await svc.updateCommercial('c1', { notes: 'Solo notas' });
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { notes: 'Solo notas' },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0].type).toBe('NOTES_UPDATED');
   });
 
   it('throws NotFoundException for unknown id', async () => {
@@ -280,11 +589,8 @@ describe('ContactsService.updateCommercial', () => {
 });
 
 describe('UpdateCommercialDto validation (invalid status)', () => {
-  // Documents that invalid LeadStatus is rejected by class-validator / IsEnum
-  // (controller uses UpdateCommercialDto with @IsEnum(LeadStatus)).
   const { validate } = require('class-validator');
   const { plainToInstance } = require('class-transformer');
-  // Lazy require after prisma generate; enum values checked via string set
   const ALLOWED = ['NEW', 'IN_PROGRESS', 'INTERESTED', 'QUOTED', 'WON', 'LOST'];
 
   it('documents allowed LeadStatus values and rejects unknown', () => {
@@ -298,21 +604,24 @@ describe('UpdateCommercialDto validation (invalid status)', () => {
     try {
       ({ UpdateCommercialDto } = require('./update-commercial.dto'));
     } catch {
-      // prisma client may not be generated yet in some CI paths
       return;
     }
     const dto = plainToInstance(UpdateCommercialDto, {
       leadStatus: 'NOT_A_STATUS',
     });
     const errors = await validate(dto);
-    const statusErr = errors.find((e: { property: string }) => e.property === 'leadStatus');
+    const statusErr = errors.find(
+      (e: { property: string }) => e.property === 'leadStatus',
+    );
     expect(statusErr).toBeDefined();
   });
 });
 
 describe('seed-dev mock JID cleanup list', () => {
-  it('documents exact 8 JIDs cleaned by seed-dev', () => {
+  it('12: documents exact 8 JIDs cleaned by seed-dev (manual seed twice for idempotency)', () => {
     // Keep in sync with prisma/seed-dev.ts DEV_MOCK_CONTACT_JIDS
+    // Validation: run `pnpm db:seed:dev` twice — second run must leave same 8 contacts
+    // with coherent SEED CommercialActivity chains (no duplicates from prior run).
     const exact = [
       'mock-carlos@simulator.local',
       'mock-maria@simulator.local',

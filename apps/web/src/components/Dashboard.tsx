@@ -1,5 +1,7 @@
 'use client';
 
+import { CommercialActivityTimeline } from '@/components/CommercialActivityTimeline';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -860,6 +862,10 @@ export function Dashboard() {
             setSelectedContactId(id);
             setTab('contacts');
           }}
+          onOpenConversation={(conversationId) => {
+            setSelectedId(conversationId);
+            setTab('chats');
+          }}
         />
       ) : tab === 'contacts' ? (
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px_1fr]">
@@ -1090,6 +1096,17 @@ export function Dashboard() {
                       {contactSaving ? 'Guardando…' : 'Guardar cambios'}
                     </Button>
                   </CardFooter>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Historial comercial</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CommercialActivityTimeline
+                      contactId={contactDetail?.id ?? selectedContactId}
+                    />
+                  </CardContent>
                 </Card>
 
                 <Card>
