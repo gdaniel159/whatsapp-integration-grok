@@ -5,9 +5,11 @@ import {
   buildGroundingInstructions,
   extractAlreadyProvidedFacts,
   sanitizeConversationalInternalTokens,
+  userAsksAboutHours,
+  userAsksOnlyAboutHours,
 } from './conversational-grounding';
 
-describe('conversational system prompt (Nova Servicios demo) — 13.D.2', () => {
+describe('conversational system prompt (Nova Servicios demo) — 13.D.2 / 13.D.3', () => {
   const llm = new LlmService({ get: () => undefined } as never, {} as never);
 
   const profile = businessProfileFromSettings({
@@ -157,4 +159,62 @@ describe('conversational system prompt (Nova Servicios demo) — 13.D.2', () => 
     expect(prompt).toMatch(/fences/i);
     expect(prompt).toMatch(/No menciones .*KB|base de conocimiento/i);
   });
+
+  it('13.D.3 C: hours question → prompt favors direct brief natural answer', () => {
+    const msg = '¿Cuáles son sus horarios de atención?';
+    expect(userAsksAboutHours(msg)).toBe(true);
+    expect(userAsksOnlyAboutHours(msg)).toBe(true);
+    const grounding = buildGroundingInstructions(msg);
+    expect(grounding).toMatch(/pregunta SOLO por horarios/i);
+    expect(grounding).toMatch(/DIRECTA y BREVE/i);
+    expect(grounding).toMatch(/BusinessProfile/i);
+    expect(grounding).toMatch(/NO añadas explicaciones de dentro\/fuera/i);
+
+    const prompt = llm.buildSystemPrompt(DEMO_KB_CONTENT, profile, {
+      userMessage: msg,
+      recentHistory: [
+        { role: 'customer', text: 'hola' },
+        { role: 'business', text: 'Bienvenido a Nova Servicios' },
+      ],
+    });
+    expect(prompt).toContain('09:00');
+    expect(prompt).toContain('18:00');
+    expect(prompt).toContain('America/Lima');
+    expect(prompt).toMatch(/responde DIRECTO y BREVE/i);
+    expect(prompt).toMatch(/pregunta SOLO por horarios/i);
+  });
+
+  it('13.D.3 D: pure hours → no unnecessary handoff language when hours exist', () => {
+    const msg = '¿Cuáles son sus horarios de atención?';
+    const grounding = buildGroundingInstructions(msg);
+    expect(grounding).toMatch(/NO ofrezcas handoff humano/i);
+    expect(grounding).toMatch(/dato ya está en BusinessProfile/i);
+
+    const prompt = llm.buildSystemPrompt(DEMO_KB_CONTENT, profile, {
+      userMessage: msg,
+    });
+    expect(prompt).toMatch(/No añadas handoff humano/i);
+    // Grounding for hours-only must not push handoff
+    expect(prompt).toMatch(/NO ofrezcas handoff humano/i);
+  });
+
+  it('13.D.3 E: prior turns → no forced Hola / Estoy aquí para ayudarte', () => {
+    const msg = '¿Cuáles son sus horarios de atención?';
+    const grounding = buildGroundingInstructions(msg, { hasPriorTurns: true });
+    expect(grounding).toMatch(/NO vuelvas a saludar con "Hola"/i);
+    expect(grounding).toMatch(/Estoy aquí para ayudarte/i);
+
+    const prompt = llm.buildSystemPrompt(DEMO_KB_CONTENT, profile, {
+      userMessage: msg,
+      recentHistory: [
+        { role: 'customer', text: 'buenas' },
+        { role: 'business', text: 'Hola, bienvenido' },
+        { role: 'customer', text: 'ok' },
+      ],
+    });
+    expect(prompt).toMatch(/no repitas saludos \("Hola"\)/i);
+    expect(prompt).toMatch(/Estoy aquí para ayudarte/i);
+    expect(prompt).toMatch(/Conversación YA iniciada/i);
+  });
+
 });

@@ -1,5 +1,8 @@
 import { CommercialAutomationMode, LeadStatus } from '@prisma/client';
-import { CommercialDecisionService } from './commercial-decision.service';
+import {
+  buildCommercialAnalysisContext,
+  CommercialDecisionService,
+} from './commercial-decision.service';
 
 function makeService(opts: {
   mode: CommercialAutomationMode;
@@ -208,5 +211,76 @@ describe('CommercialDecisionService modes + resilience', () => {
       expect(result.diagnostics?.code).toBe('INVALID_ENUM_VALUE');
       expect(result.decision).toBeNull();
     }
+  });
+});
+
+describe('13.D.3 commercial context tag isolation wiring', () => {
+  it('A: customerEvidence excludes BUSINESS assistant service lists', () => {
+    const payload = buildCommercialAnalysisContext({
+      leadStatus: LeadStatus.NEW,
+      tags: [],
+      recent: [
+        {
+          direction: 'OUT',
+          body: 'Ofrecemos instalación, mantenimiento y soporte técnico.',
+        },
+        {
+          direction: 'IN',
+          body: 'Necesito mantenimiento para mi computadora.',
+        },
+      ],
+    });
+    expect(payload.customerEvidence).toEqual([
+      { text: 'Necesito mantenimiento para mi computadora.' },
+    ]);
+    expect(payload.recentConversation).toEqual([
+      {
+        role: 'BUSINESS',
+        text: 'Ofrecemos instalación, mantenimiento y soporte técnico.',
+      },
+      {
+        role: 'CUSTOMER',
+        text: 'Necesito mantenimiento para mi computadora.',
+      },
+    ]);
+    expect(payload.tagEvidenceRule).toMatch(/customerEvidence/i);
+    expect(payload.tagEvidenceRule).toMatch(/Never tag from BUSINESS/i);
+    // Assistant list must not appear inside customerEvidence
+    const joined = payload.customerEvidence.map((c) => c.text).join(' ');
+    expect(joined).not.toMatch(/instalaci[oó]n/i);
+    expect(joined).not.toMatch(/soporte/i);
+    expect(joined).toMatch(/mantenimiento/i);
+  });
+
+  it('passes isolated context JSON to LLM user payload', async () => {
+    const { svc, chatCompletion, prisma } = makeService({
+      mode: CommercialAutomationMode.OBSERVE,
+      llmRaw: productJson,
+    });
+    prisma.message.findMany = jest.fn(async () => [
+      {
+        direction: 'OUT',
+        body: 'Tenemos instalación, mantenimiento y soporte.',
+      },
+      { direction: 'IN', body: 'Necesito mantenimiento para mi computadora.' },
+    ]);
+    await svc.handleInbound('conv1');
+    expect(chatCompletion).toHaveBeenCalled();
+    const callArgs = chatCompletion.mock.calls[0] as unknown as [
+      string,
+      string,
+      ...unknown[],
+    ];
+    const userPayload = callArgs[1];
+    const parsed = JSON.parse(userPayload);
+    expect(parsed.customerEvidence).toEqual([
+      { text: 'Necesito mantenimiento para mi computadora.' },
+    ]);
+    expect(parsed.tagEvidenceRule).toMatch(/CUSTOMER/i);
+    expect(
+      parsed.customerEvidence.some((c: { text: string }) =>
+        /instalaci/i.test(c.text),
+      ),
+    ).toBe(false);
   });
 });

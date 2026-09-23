@@ -187,8 +187,11 @@ export class LlmService {
       ? `Negocio: ${p.businessName.trim()}`
       : 'Negocio: (nombre no configurado)';
 
+    const hasPriorTurns = Boolean(opts?.recentHistory?.length);
     const historyBlock = formatRecentHistoryForPrompt(opts?.recentHistory);
-    const groundingBlock = buildGroundingInstructions(opts?.userMessage);
+    const groundingBlock = buildGroundingInstructions(opts?.userMessage, {
+      hasPriorTurns,
+    });
 
     return `Eres un asistente de atención al cliente por WhatsApp.
 Responde SIEMPRE en español (si el cliente escribe en español), breve, natural y amable. Oraciones completas. Sin Spanglish ni palabras internas en inglés. Sin relleno especulativo. No inventes hechos solo para terminar una frase.
@@ -197,6 +200,8 @@ ${bizLine}
 Horario oficial (BusinessProfile — fuente de verdad): ${hours.start}–${hours.end} (${hours.timezone}). Hora local aproximada: ${hours.localTime}. Ahora: ${hours.openNow ? 'dentro de horario' : 'fuera de horario'}.
 Si la información de referencia menciona otros horarios, prevalece BusinessProfile.
 NO menciones el horario ni la hora local salvo que el cliente pregunte por horarios o disponibilidad temporal.
+Si el cliente pregunta por horarios de atención y BusinessProfile tiene horario configurado: responde DIRECTO y BREVE con inicio–fin y zona (español natural y conciso). No inventes disponibilidad de personal. No añadas handoff humano ni explicaciones de dentro/fuera de horario salvo que pregunte si están abiertos ahora. No fuerces una pregunta de cierre genérica.
+Si la conversación ya tiene turnos previos: no repitas saludos ("Hola") ni frases de bienvenida ("Estoy aquí para ayudarte"); continúa el hilo con naturalidad.
 
 Fuentes autorizadas ÚNICAS: la información de referencia de abajo y BusinessProfile (nombre/horario). No uses conocimiento externo.
 NUNCA inventes precios, direcciones, ubicaciones, descuentos, disponibilidad, plazos ni políticas que no estén explícitas en esas fuentes.

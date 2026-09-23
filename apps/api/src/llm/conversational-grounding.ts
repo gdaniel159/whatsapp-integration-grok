@@ -1,5 +1,5 @@
 /**
- * Conversational grounding helpers (13.D.2).
+ * Conversational grounding helpers (13.D.2 / 13.D.3).
  * Customer-facing only — no CommercialDecision / policy enums in prompts.
  */
 
@@ -79,6 +79,25 @@ export function userAsksAboutLocation(userMessage: string): boolean {
   );
 }
 
+/** True when the client is asking about opening/attention hours (conversational grounding only). */
+export function userAsksAboutHours(userMessage: string): boolean {
+  const t = String(userMessage ?? '').toLowerCase();
+  return (
+    /horarios?\b|horario de atenci[oó]n|a qu[eé] hora|cu[aá]ndo abren|cu[aá]ndo atienden|est[aá]n abiertos|abre(?:n)?\b|cierr(?:a|an)\b/.test(
+      t,
+    ) || /atenci[oó]n\b.*\b(hora|horario)/.test(t)
+  );
+}
+
+/** Hours-only question (no price / location / service pitch needed). */
+export function userAsksOnlyAboutHours(userMessage: string): boolean {
+  if (!userAsksAboutHours(userMessage)) return false;
+  if (userAsksAboutPrice(userMessage) || userAsksAboutLocation(userMessage)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Strip EXACT internal enum/schema tokens from conversational outbound.
  * Limited defensive cleanup — not semantic paraphrase.
@@ -128,12 +147,15 @@ export function formatRecentHistoryForPrompt(
  */
 export function buildGroundingInstructions(
   userMessage: string | undefined,
+  opts?: { hasPriorTurns?: boolean },
 ): string {
   if (!userMessage?.trim()) return '';
 
   const facts = extractAlreadyProvidedFacts(userMessage);
   const asksPrice = userAsksAboutPrice(userMessage);
   const asksLocation = userAsksAboutLocation(userMessage);
+  const asksHoursOnly = userAsksOnlyAboutHours(userMessage);
+  const asksHours = userAsksAboutHours(userMessage);
 
   const parts: string[] = [];
   parts.push('Contexto del mensaje actual del cliente:');
@@ -144,9 +166,28 @@ export function buildGroundingInstructions(
     parts.push(
       '- No preguntes de nuevo qué servicio necesita ni qué equipo tiene si ya lo dijo.',
     );
-  } else {
+  } else if (!asksHoursOnly) {
     parts.push(
       '- Solo pregunta lo estrictamente faltante si hace falta para ayudar; no interrogues de más.',
+    );
+  }
+
+  if (asksHoursOnly) {
+    parts.push(
+      '- El cliente pregunta SOLO por horarios de atención: responde de forma DIRECTA y BREVE con el horario oficial de BusinessProfile (inicio–fin y zona). Ejemplo de forma (no copies literal): "Nuestro horario de atención es de HH:mm a HH:mm, hora de …".',
+    );
+    parts.push(
+      '- NO añadas explicaciones de dentro/fuera de horario salvo que el cliente pregunte si están abiertos ahora.',
+    );
+    parts.push(
+      '- NO inventes disponibilidad de personal. NO ofrezcas handoff humano: el dato ya está en BusinessProfile.',
+    );
+    parts.push(
+      '- NO fuerces cerrar con una pregunta genérica ("¿En qué más te ayudo?"). Una respuesta corta y natural basta.',
+    );
+  } else if (asksHours && (asksPrice || asksLocation)) {
+    parts.push(
+      '- Si también pregunta horarios, responde el horario oficial de BusinessProfile de forma breve junto con las otras partes; no digresiones de handoff por el horario.',
     );
   }
 
@@ -161,6 +202,12 @@ export function buildGroundingInstructions(
   } else if (asksLocation) {
     parts.push(
       '- El cliente pregunta por ubicación/dirección: si no hay dirección en la información de referencia, dilo con honestidad (no inventes una dirección) y ofrece handoff a un asesor humano cuando corresponda.',
+    );
+  }
+
+  if (opts?.hasPriorTurns) {
+    parts.push(
+      '- Conversación YA iniciada: NO vuelvas a saludar con "Hola" ni con frases de bienvenida tipo "Estoy aquí para ayudarte". Continúa de forma natural.',
     );
   }
 

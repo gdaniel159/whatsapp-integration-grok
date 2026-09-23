@@ -30,6 +30,58 @@ const COMMERCIAL_TIMEOUT_MS = 15_000;
 /** R1 distill spends tokens on thinking — leave headroom for JSON. */
 const COMMERCIAL_MAX_TOKENS = 768;
 
+export type CommercialContextTurn = {
+  role: 'CUSTOMER' | 'BUSINESS';
+  text: string;
+};
+
+export type CommercialAnalysisContextPayload = {
+  currentContact: { leadStatus: LeadStatus; tags: string[] };
+  /** Sole evidentiary source for suggestedTags — CUSTOMER utterances only. */
+  customerEvidence: Array<{ text: string }>;
+  /**
+   * Full recent window with roles. BUSINESS/assistant turns are conversational
+   * context only — never evidence for suggestedTags.
+   */
+  recentConversation: CommercialContextTurn[];
+  tagEvidenceRule: string;
+};
+
+/**
+ * Build CommercialDecision user-context JSON.
+ * Isolates client evidence from assistant/KB contamination for suggestedTags.
+ */
+export function buildCommercialAnalysisContext(input: {
+  leadStatus: LeadStatus;
+  tags: string[];
+  recent: Array<{ direction: MessageDirection | string; body: string }>;
+}): CommercialAnalysisContextPayload {
+  const recentConversation: CommercialContextTurn[] = input.recent.map(
+    (message) => ({
+      role:
+        message.direction === MessageDirection.IN ||
+        message.direction === 'IN'
+          ? 'CUSTOMER'
+          : 'BUSINESS',
+      text: message.body.slice(0, MAX_BODY_CHARS),
+    }),
+  );
+  const customerEvidence = recentConversation
+    .filter((t) => t.role === 'CUSTOMER')
+    .map((t) => ({ text: t.text }));
+  return {
+    currentContact: {
+      leadStatus: input.leadStatus,
+      tags: input.tags,
+    },
+    customerEvidence,
+    recentConversation,
+    tagEvidenceRule:
+      'suggestedTags MUST come only from customerEvidence / CUSTOMER role. ' +
+      'Never tag from BUSINESS/assistant text, KB, BusinessProfile, system, or few-shots.',
+  };
+}
+
 export type CommercialAnalysisOutcome =
   | 'DISABLED'
   | 'APPLIED'
@@ -170,17 +222,11 @@ export class CommercialDecisionService {
     });
     recent.reverse();
 
-    const contextPayload = {
-      currentContact: {
-        leadStatus: conversation.contact.leadStatus,
-        tags: conversation.contact.tags,
-      },
-      recentConversation: recent.map((message) => ({
-        role:
-          message.direction === MessageDirection.IN ? 'CUSTOMER' : 'BUSINESS',
-        text: message.body.slice(0, MAX_BODY_CHARS),
-      })),
-    };
+    const contextPayload = buildCommercialAnalysisContext({
+      leadStatus: conversation.contact.leadStatus,
+      tags: conversation.contact.tags,
+      recent,
+    });
 
     const raw = await this.llm.chatCompletion(
       buildCommercialAnalysisPrompt(),

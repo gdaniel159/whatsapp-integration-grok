@@ -273,4 +273,41 @@ describe('commercial-decision.schema fixtures A–G + 13.D / 13.D.1', () => {
       expect(r.diagnostics.unknownKeys).toContain('extraField');
     }
   });
+
+  it('13.D.3 A: tag isolation — forbid assistant/KB as suggestedTags evidence', () => {
+    const prompt = buildCommercialAnalysisPrompt();
+    expect(prompt).toMatch(/AISLAMIENTO DE EVIDENCIA PARA suggestedTags/i);
+    expect(prompt).toMatch(/NUNCA generes tags a partir de/i);
+    expect(prompt).toMatch(/mensajes BUSINESS\/asistente|role CUSTOMER/i);
+    expect(prompt).toMatch(/historial del asistente es solo contexto conversacional/i);
+    expect(prompt).toMatch(/NO es evidencia de interés comercial/i);
+    expect(prompt).toContain(
+      'Necesito mantenimiento para mi computadora.',
+    );
+    expect(prompt).toMatch(/instalación, mantenimiento y soporte/i);
+    // Few-shot must show correct tags without instalación/soporte contamination
+    const isoIdx = prompt.indexOf('AISLAMIENTO DE TAGS');
+    expect(isoIdx).toBeGreaterThan(-1);
+    const after = prompt.slice(isoIdx, isoIdx + 700);
+    expect(after).toContain('"suggestedTags":["mantenimiento","computadora"]');
+    expect(after).not.toMatch(/"suggestedTags":\[[^\]]*instalaci/i);
+    expect(after).not.toMatch(/"suggestedTags":\[[^\]]*soporte/i);
+  });
+
+  it('13.D.3 B: price+location keeps PRICE_INQUIRY + client-only tag grounding', () => {
+    const prompt = buildCommercialAnalysisPrompt();
+    expect(prompt).toMatch(/PRICE_INQUIRY prevalece sobre GENERAL_INQUIRY/i);
+    expect(prompt).toContain(
+      'Necesito mantenimiento para mi computadora. ¿Cuánto cuesta y dónde están ubicados?',
+    );
+    const mixIdx = prompt.indexOf(
+      'Necesito mantenimiento para mi computadora. ¿Cuánto cuesta y dónde están ubicados?',
+    );
+    const after = prompt.slice(mixIdx, mixIdx + 550);
+    expect(after).toContain('"intent":"PRICE_INQUIRY"');
+    expect(after).toContain('"suggestedTags":["mantenimiento","computadora"]');
+    expect(after).toMatch(/tags solo de lo dicho por el cliente|solo del cliente/i);
+    expect(after).not.toMatch(/"suggestedTags":\[[^\]]*instalaci/i);
+  });
+
 });
