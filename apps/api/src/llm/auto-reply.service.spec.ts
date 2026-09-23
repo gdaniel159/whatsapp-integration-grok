@@ -96,7 +96,7 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     expect(prisma.conversation.findUnique).not.toHaveBeenCalled();
   });
 
-  it('A: First inbound + welcome configured → exactly one outbound (welcome only)', async () => {
+  it('G: First inbound + welcome configured → welcome only (no conversational LLM)', async () => {
     const { svc, sendMessage, llm, prisma } = makeService({
       globalAutoReplyEnabled: true,
       aiMode: 'AI',
@@ -125,7 +125,7 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     expect(result.detail).toBe('welcome_only_first_inbound');
   });
 
-  it('C: Second inbound → conversational LLM runs (no welcome)', async () => {
+  it('H: Second+ inbound → conversational LLM runs (no welcome)', async () => {
     const { svc, sendMessage, llm, prisma } = makeService({
       globalAutoReplyEnabled: true,
       aiMode: 'AI',
@@ -148,6 +148,32 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     expect(bodies[0]).toBe('AI reply text');
     expect(result.welcomeSent).toBe(false);
     expect(result.aiReplySent).toBe(true);
+  });
+
+  it('F: conversational outbound strips Markdown via sanitizer', async () => {
+    const { svc, sendMessage, llm, prisma } = makeService({
+      globalAutoReplyEnabled: true,
+      aiMode: 'AI',
+      inboundCount: 2,
+    });
+    prisma.botSettings.upsert.mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      globalAutoReplyEnabled: true,
+    });
+    llm.chatCompletion.mockResolvedValue(
+      'Ofrecemos **instalación** y *mantenimiento*.\n\n- Soporte',
+    );
+
+    await svc.handleInbound('conv1', '¿qué servicios ofrecen?');
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const bodies = sendMessage.mock.calls.map(
+      (c: unknown[]) => c[1] as string,
+    );
+    expect(bodies[0]).not.toMatch(/\*\*/);
+    expect(bodies[0]).toContain('instalación');
+    expect(bodies[0]).toContain('mantenimiento');
+    expect(bodies[0]).toContain('Soporte');
   });
 
   it('J: welcome resolves {businessName} from BusinessProfile', async () => {

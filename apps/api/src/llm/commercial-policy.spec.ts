@@ -305,3 +305,30 @@ describe('non-automotive commercial policy cases', () => {
     expect(result.applyStatus).toBeUndefined();
   });
 });
+
+describe('13.D.1 policy authority', () => {
+  it('J: policy is sole apply authority — model WON/QUOTED never applied', () => {
+    const won = evaluateCommercialPolicy(
+      { leadStatus: LeadStatus.NEW, tags: [] },
+      decision({
+        intent: 'PURCHASE_INTENT',
+        confidence: 0.99,
+        suggestedStatus: LeadStatus.WON,
+      }),
+    );
+    expect(won.applyStatus).not.toBe(LeadStatus.WON);
+    expect(won.rejectedChanges.some((r) => r.includes('WON'))).toBe(true);
+
+    const quoted = evaluateCommercialPolicy(
+      { leadStatus: LeadStatus.NEW, tags: [] },
+      decision({
+        intent: 'QUOTE_REQUEST',
+        confidence: 0.99,
+        suggestedStatus: LeadStatus.QUOTED,
+      }),
+    );
+    expect(quoted.applyStatus).toBe(LeadStatus.INTERESTED);
+    expect(quoted.applyStatus).not.toBe(LeadStatus.QUOTED);
+    expect(quoted.rejectedChanges.some((r) => r.includes('QUOTED'))).toBe(true);
+  });
+});

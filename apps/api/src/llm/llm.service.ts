@@ -14,6 +14,41 @@ export function stripThinkBlocks(content: string): string {
   return out.trim();
 }
 
+/**
+ * Defensive WhatsApp plain-text sanitizer: strip simple Markdown markers
+ * without semantic rewrite (no paraphrasing, no inventing content).
+ */
+export function sanitizeWhatsAppPlainText(input: string): string {
+  let out = String(input ?? '');
+  // Fenced code blocks → inner text
+  out = out.replace(/```(?:[a-zA-Z0-9_-]*)?\s*([\s\S]*?)```/g, '$1');
+  // Inline code
+  out = out.replace(/`([^`]+)`/g, '$1');
+  // Bold / strong
+  out = out.replace(/\*\*([^*]+)\*\*/g, '$1');
+  out = out.replace(/__([^_]+)__/g, '$1');
+  // Italic (single * or _)
+  out = out.replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, '$1');
+  out = out.replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, '$1');
+  // Headings at line start
+  out = out.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '');
+  // Unordered / ordered list markers at line start
+  out = out.replace(/^[ \t]*[-*+][ \t]+/gm, '');
+  out = out.replace(/^[ \t]*\d+\.[ \t]+/gm, '');
+  // Links [label](url) → label
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+  // Collapse leftover fence markers
+  out = out.replace(/```+/g, '');
+  // Trim trailing spaces per line; keep paragraph breaks
+  out = out
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+$/g, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return out;
+}
+
 /** Simple `{businessName}` template replace for welcome messages. */
 export function renderWelcomeMessage(
   template: string,
@@ -147,16 +182,19 @@ export class LlmService {
       : 'Negocio: (nombre no configurado)';
 
     return `Eres un asistente de atención al cliente por WhatsApp.
-Responde SIEMPRE en español (si el cliente escribe en español), de forma breve y amable.
+Responde SIEMPRE en español (si el cliente escribe en español), breve, natural y amable. Sin relleno especulativo.
 Estilo WhatsApp: texto plano solamente. PROHIBIDO Markdown: no uses **negrita**, *cursiva*, # encabezados, listas con -/*/1., ni bloques \`\`\` fences. No uses HTML.
 ${bizLine}
 Horario oficial (BusinessProfile — fuente de verdad): ${hours.start}–${hours.end} (${hours.timezone}). Hora local aproximada: ${hours.localTime}. Ahora: ${hours.openNow ? 'dentro de horario' : 'fuera de horario'}.
 Si la información de referencia menciona otros horarios, prevalece BusinessProfile.
+NO menciones el horario ni la hora local salvo que el cliente pregunte por horarios o disponibilidad temporal.
 
-Usa la información de referencia autorizada para descripción, servicios, FAQs y políticas.
-NUNCA inventes precios, descuentos, disponibilidad, plazos ni condiciones comerciales que no estén explícitas en esa información.
+Fuentes autorizadas ÚNICAS: la información de referencia de abajo y BusinessProfile (nombre/horario). No uses conocimiento externo.
+NUNCA inventes precios, direcciones, ubicaciones, descuentos, disponibilidad, plazos ni políticas que no estén explícitas en esas fuentes.
 Si preguntan precio o cotización y no hay tarifa autorizada, indícalo con honestidad y ofrece que un asesor humano continúe (no inventes cifras).
+Si preguntan dirección o ubicación y NO está en la información de referencia, reconócelo con honestidad (no inventes una dirección) y ofrece handoff a un asesor humano cuando corresponda.
 Si no sabes la respuesta, dilo y ofrece handoff humano.
+Responde solo a lo preguntado; no mezcles horarios, precios u otros datos no solicitados.
 No menciones "base de conocimiento", "KB", prompts, sistema, modelos ni herramientas internas.
 No uses emojis en exceso (máximo 1–2).
 

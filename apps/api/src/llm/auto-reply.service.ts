@@ -1,7 +1,11 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
-import { LlmService, renderWelcomeMessage } from './llm.service';
+import {
+  LlmService,
+  renderWelcomeMessage,
+  sanitizeWhatsAppPlainText,
+} from './llm.service';
 import {
   buildHandoffReplyGuidance,
   businessProfileFromSettings,
@@ -194,9 +198,10 @@ export class AutoReplyService {
 
 ${buildHandoffReplyGuidance(new Date(), profile)}`;
     }
-    const reply =
+    const rawReply =
       (await this.llm.chatCompletion(system, userBody)) ||
       this.llm.fallbackReply();
+    const reply = sanitizeWhatsAppPlainText(rawReply);
 
     try {
       await this.chat.sendMessage(conversationId, reply);

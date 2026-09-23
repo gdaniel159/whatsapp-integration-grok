@@ -6,7 +6,7 @@ import {
   buildCommercialAnalysisPrompt,
 } from './commercial-decision.schema';
 
-describe('commercial-decision.schema fixtures A–G + 13.D', () => {
+describe('commercial-decision.schema fixtures A–G + 13.D / 13.D.1', () => {
   const valid = {
     intent: 'PRODUCT_INQUIRY',
     suggestedStatus: 'INTERESTED',
@@ -224,5 +224,53 @@ describe('commercial-decision.schema fixtures A–G + 13.D', () => {
     expect(prompt).toMatch(/Ejemplo GENERAL_INQUIRY/i);
     expect(prompt).toMatch(/Ejemplo PRICE_INQUIRY/i);
     expect(prompt).not.toMatch(/"suggestedStatus":"NEW\|IN_PROGRESS.*"\|null/);
+  });
+
+  it('B: price question → PRICE_INQUIRY priority in prompt', () => {
+    const prompt = buildCommercialAnalysisPrompt();
+    expect(prompt).toContain('PRICE_INQUIRY');
+    expect(prompt).toMatch(/costo\/precio\/tarifa\/cotización|cuánto cuesta/i);
+    expect(prompt).toMatch(/PRICE_INQUIRY prevalece sobre GENERAL_INQUIRY/i);
+  });
+
+  it('C: mixed price+location few-shot → PRICE over GENERAL', () => {
+    const prompt = buildCommercialAnalysisPrompt();
+    expect(prompt).toContain(
+      '¿Cuánto cuesta el mantenimiento y dónde están ubicados?',
+    );
+    expect(prompt).toMatch(/PRICE prevalece sobre GENERAL/i);
+    const mixedIdx = prompt.indexOf(
+      '¿Cuánto cuesta el mantenimiento y dónde están ubicados?',
+    );
+    const after = prompt.slice(mixedIdx, mixedIdx + 500);
+    expect(after).toContain('"intent":"PRICE_INQUIRY"');
+    expect(after).not.toContain('"intent":"GENERAL_INQUIRY"');
+  });
+
+  it('D: hiring/service intent may suggest INTERESTED (suggestion only)', () => {
+    const prompt = buildCommercialAnalysisPrompt();
+    expect(prompt).toMatch(/llevar mi computadora para mantenimiento/i);
+    expect(prompt).toContain('"suggestedStatus":"INTERESTED"');
+    expect(prompt).toMatch(/SOLO sugerencia|sugerencias; la política/i);
+    expect(prompt).toMatch(/Nunca auto-sugieras QUOTED, WON ni LOST|Nunca trates QUOTED\/WON\/LOST/i);
+  });
+
+  it('I: Zod .strict() still rejects unknown keys', () => {
+    const r = safeParseCommercialDecision(
+      JSON.stringify({
+        intent: 'GENERAL_INQUIRY',
+        suggestedStatus: null,
+        suggestedTags: [],
+        confidence: 0.8,
+        reason: 'ok',
+        requiresHumanAttention: false,
+        handoffReason: null,
+        extraField: true,
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.diagnostics.unknownKeys).toContain('extraField');
+    }
   });
 });
