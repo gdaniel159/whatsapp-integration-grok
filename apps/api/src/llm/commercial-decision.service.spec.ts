@@ -180,4 +180,33 @@ describe('CommercialDecisionService modes + resilience', () => {
     expect(result.diagnostics?.code).toBeTruthy();
     expect(applyCommercialAutomation).not.toHaveBeenCalled();
   });
+
+  it('B/D: unknown text + bad enum → REJECTED, no CRM writes (OBSERVE/APPLY still invoke LLM)', async () => {
+    const bad = JSON.stringify({
+      intent: 'GENERAL_INQUIRY',
+      suggestedStatus: 'Interesado',
+      suggestedTags: [],
+      confidence: 0.9,
+      reason: 'consulta',
+      requiresHumanAttention: false,
+      handoffReason: null,
+      text: 'Hola',
+    });
+    for (const mode of [
+      CommercialAutomationMode.OBSERVE,
+      CommercialAutomationMode.APPLY,
+    ]) {
+      const { svc, chatCompletion, applyCommercialAutomation } = makeService({
+        mode,
+        llmRaw: bad,
+      });
+      const result = await svc.handleInbound('conv1');
+      expect(chatCompletion).toHaveBeenCalled();
+      expect(applyCommercialAutomation).not.toHaveBeenCalled();
+      expect(result.outcome).toBe('REJECTED');
+      expect(result.validationStatus).toBe('INVALID');
+      expect(result.diagnostics?.code).toBe('INVALID_ENUM_VALUE');
+      expect(result.decision).toBeNull();
+    }
+  });
 });

@@ -130,7 +130,14 @@ type CommercialAnalysisDebug = {
   diagnostics?: {
     code: string;
     message: string;
-    fieldErrors: Array<{ path: string; message: string; code: string }>;
+    fieldErrors: Array<{
+      path: string;
+      message: string;
+      code: string;
+      received?: string;
+      expected?: string[];
+    }>;
+    unknownKeys?: string[];
     rawPreview?: string;
   } | null;
 };
@@ -929,6 +936,13 @@ export function Dashboard() {
                               Código: {simAnalysis.diagnostics.code}
                             </div>
                           ) : null}
+                          {(simAnalysis.diagnostics?.unknownKeys?.length ?? 0) >
+                          0 ? (
+                            <div className="text-xs text-muted-foreground">
+                              Claves desconocidas:{' '}
+                              {simAnalysis.diagnostics!.unknownKeys!.join(', ')}
+                            </div>
+                          ) : null}
                           {(simAnalysis.diagnostics?.fieldErrors?.length ?? 0) >
                           0 ? (
                             <ul className="text-xs list-disc pl-4">
@@ -938,6 +952,18 @@ export function Dashboard() {
                                   <li key={`${err.path}-${i}`}>
                                     <span className="font-mono">{err.path}</span>
                                     : {err.message}
+                                    {err.received != null ? (
+                                      <>
+                                        {' '}
+                                        <span className="text-muted-foreground">
+                                          (recibido: {err.received}
+                                          {err.expected?.length
+                                            ? `; esperados: ${err.expected.join(', ')}`
+                                            : ''}
+                                          )
+                                        </span>
+                                      </>
+                                    ) : null}
                                   </li>
                                 ))}
                             </ul>

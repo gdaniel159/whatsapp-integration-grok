@@ -107,26 +107,42 @@ export class AutoReplyService {
         where: { conversationId, direction: 'IN' },
       });
 
+      const isFirstInbound = inboundCount === 1;
       let welcomeSent = false;
-      if (inboundCount === 1) {
+      /** First inbound with a configured welcome → welcome only (no conversational LLM). */
+      let skipConversationalForWelcome = false;
+
+      if (isFirstInbound && this.isWelcomeConfigured(settings)) {
         welcomeSent = await this.sendWelcome(conversationId, settings);
+        skipConversationalForWelcome = true;
       }
 
-      const aiReplySent = await this.sendAiReply(
-        conversationId,
-        userBody,
-        opts?.requiresHumanAttention === true,
-        settings,
-      );
+      let aiReplySent = false;
+      if (!skipConversationalForWelcome) {
+        aiReplySent = await this.sendAiReply(
+          conversationId,
+          userBody,
+          opts?.requiresHumanAttention === true,
+          settings,
+        );
+      }
 
       return {
         status: 'OK',
         welcomeSent,
         aiReplySent,
+        detail: skipConversationalForWelcome
+          ? 'welcome_only_first_inbound'
+          : undefined,
       };
     } finally {
       this.busy.delete(conversationId);
     }
+  }
+
+  /** True when BotSettings has a non-empty welcome template (may include `{businessName}`). */
+  private isWelcomeConfigured(settings: { welcomeMessage: string }): boolean {
+    return Boolean(settings.welcomeMessage?.trim());
   }
 
   /**

@@ -42,4 +42,13 @@ describe('conversational system prompt (Nova Servicios demo)', () => {
     const prompt = llm.buildSystemPrompt(DEMO_KB_CONTENT, profile);
     expect(prompt).toMatch(/no inventes cifras|tarifa autorizada/i);
   });
+
+  it('I: conversational prompt discourages Markdown **bold**/fences', () => {
+    const prompt = llm.buildSystemPrompt(DEMO_KB_CONTENT, profile);
+    expect(prompt).toMatch(/PROHIBIDO Markdown/i);
+    expect(prompt).toContain('**negrita**');
+    expect(prompt).toMatch(/texto plano/i);
+    expect(prompt).toMatch(/fences/i);
+    expect(prompt).toMatch(/No menciones .*KB|base de conocimiento/i);
+  });
 });

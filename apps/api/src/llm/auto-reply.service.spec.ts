@@ -1,4 +1,5 @@
 import { AutoReplyService } from './auto-reply.service';
+import { renderWelcomeMessage } from './llm.service';
 
 const DEFAULT_SETTINGS = {
   id: 'default',
@@ -17,6 +18,8 @@ function makeService(opts: {
   globalAutoReplyEnabled: boolean;
   aiMode: 'AI' | 'MANUAL';
   inboundCount?: number;
+  welcomeMessage?: string;
+  businessName?: string;
 }) {
   const sendMessage = jest.fn(async () => ({ id: 'out1' }));
   const chatCompletion = jest.fn(async () => 'AI reply text');
@@ -26,12 +29,13 @@ function makeService(opts: {
   const settings = {
     ...DEFAULT_SETTINGS,
     globalAutoReplyEnabled: opts.globalAutoReplyEnabled,
+    welcomeMessage: opts.welcomeMessage ?? DEFAULT_SETTINGS.welcomeMessage,
+    businessName: opts.businessName ?? DEFAULT_SETTINGS.businessName,
   };
 
   const prisma = {
     botSettings: {
       upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => {
-        // Simulate create path returning defaults when testing ensureBotSettings
         return {
           ...DEFAULT_SETTINGS,
           ...create,
@@ -80,7 +84,6 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
       aiMode: 'AI',
       inboundCount: 1,
     });
-    // Force upsert to return OFF
     prisma.botSettings.upsert.mockResolvedValue({
       ...DEFAULT_SETTINGS,
       globalAutoReplyEnabled: false,
@@ -93,7 +96,7 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     expect(prisma.conversation.findUnique).not.toHaveBeenCalled();
   });
 
-  it('Global ON + aiMode AI → auto path proceeds (welcome + AI)', async () => {
+  it('A: First inbound + welcome configured → exactly one outbound (welcome only)', async () => {
     const { svc, sendMessage, llm, prisma } = makeService({
       globalAutoReplyEnabled: true,
       aiMode: 'AI',
@@ -107,18 +110,77 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
       businessName: 'Nova Servicios',
     });
 
-    await svc.handleInbound('conv1', 'hola');
+    const result = await svc.handleInbound('conv1', 'hola');
 
-    expect(llm.chatCompletion).toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalled();
-    // welcome + AI reply (CTA/firstAction must NOT be concatenated)
+    expect(llm.chatCompletion).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
     const bodies = sendMessage.mock.calls.map(
       (c: unknown[]) => c[1] as string,
     );
-    expect(bodies.length).toBeGreaterThanOrEqual(2);
-    expect(bodies[0]).toContain('Bienvenido a Nova Servicios');
+    expect(bodies[0]).toBe('Bienvenido a Nova Servicios');
     expect(bodies[0]).not.toContain('Elige 1');
-    expect(bodies).toContain('AI reply text');
+    expect(bodies[0]).not.toContain('{businessName}');
+    expect(result.welcomeSent).toBe(true);
+    expect(result.aiReplySent).toBe(false);
+    expect(result.detail).toBe('welcome_only_first_inbound');
+  });
+
+  it('C: Second inbound → conversational LLM runs (no welcome)', async () => {
+    const { svc, sendMessage, llm, prisma } = makeService({
+      globalAutoReplyEnabled: true,
+      aiMode: 'AI',
+      inboundCount: 2,
+    });
+    prisma.botSettings.upsert.mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      globalAutoReplyEnabled: true,
+      welcomeMessage: 'Bienvenido a {businessName}',
+      businessName: 'Nova Servicios',
+    });
+
+    const result = await svc.handleInbound('conv1', '¿qué servicios ofrecen?');
+
+    expect(llm.chatCompletion).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const bodies = sendMessage.mock.calls.map(
+      (c: unknown[]) => c[1] as string,
+    );
+    expect(bodies[0]).toBe('AI reply text');
+    expect(result.welcomeSent).toBe(false);
+    expect(result.aiReplySent).toBe(true);
+  });
+
+  it('J: welcome resolves {businessName} from BusinessProfile', async () => {
+    const { svc, sendMessage, prisma } = makeService({
+      globalAutoReplyEnabled: true,
+      aiMode: 'AI',
+      inboundCount: 1,
+    });
+    prisma.botSettings.upsert.mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      globalAutoReplyEnabled: true,
+      welcomeMessage: 'Hola, soy el asistente de {businessName}.',
+      businessName: 'Nova Servicios',
+    });
+
+    await svc.handleInbound('conv1', 'hola');
+
+    const bodies = sendMessage.mock.calls.map(
+      (c: unknown[]) => c[1] as string,
+    );
+    expect(bodies[0]).toBe(
+      'Hola, soy el asistente de Nova Servicios.',
+    );
+    expect(bodies[0]).not.toContain('{businessName}');
+  });
+
+  it('renderWelcomeMessage falls back when businessName empty', () => {
+    expect(renderWelcomeMessage('Hola de {businessName}', '')).toBe(
+      'Hola de nuestro negocio',
+    );
+    expect(
+      renderWelcomeMessage('Hola de {businessName}', 'Acme Consulting'),
+    ).toBe('Hola de Acme Consulting');
   });
 
   it('Global ON + aiMode MANUAL → no auto send', async () => {
