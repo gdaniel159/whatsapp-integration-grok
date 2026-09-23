@@ -6,6 +6,7 @@ import {
   renderWelcomeMessage,
   sanitizeWhatsAppPlainText,
 } from './llm.service';
+import { sanitizeConversationalInternalTokens } from './conversational-grounding';
 import {
   buildHandoffReplyGuidance,
   businessProfileFromSettings,
@@ -192,7 +193,29 @@ export class AutoReplyService {
       where: { id: 'default' },
     });
     const profile = businessProfileFromSettings(settings);
-    let system = this.llm.buildSystemPrompt(kb?.content || '', profile);
+
+    // Recent history for grounding (exclude current inbound — passed as userBody).
+    const recentRows = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+      take: 8,
+      select: { direction: true, body: true },
+    });
+    recentRows.reverse();
+    const prior =
+      recentRows.length > 0 ? recentRows.slice(0, -1) : recentRows;
+    const recentHistory = prior.map((m) => ({
+      role:
+        m.direction === 'IN'
+          ? ('customer' as const)
+          : ('business' as const),
+      text: m.body,
+    }));
+
+    let system = this.llm.buildSystemPrompt(kb?.content || '', profile, {
+      userMessage: userBody,
+      recentHistory,
+    });
     if (requiresHumanAttention) {
       system = `${system}
 
@@ -201,7 +224,10 @@ ${buildHandoffReplyGuidance(new Date(), profile)}`;
     const rawReply =
       (await this.llm.chatCompletion(system, userBody)) ||
       this.llm.fallbackReply();
-    const reply = sanitizeWhatsAppPlainText(rawReply);
+    // Conversational outbound only: plain-text Markdown strip + exact internal tokens.
+    const reply = sanitizeConversationalInternalTokens(
+      sanitizeWhatsAppPlainText(rawReply),
+    );
 
     try {
       await this.chat.sendMessage(conversationId, reply);

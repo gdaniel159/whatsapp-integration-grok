@@ -54,6 +54,12 @@ function makeService(opts: {
     },
     message: {
       count: jest.fn(async () => opts.inboundCount ?? 2),
+      findMany: jest.fn(async () => [
+        // Prisma orderBy timestamp desc (newest first)
+        { direction: 'IN', body: '¿qué servicios ofrecen?' },
+        { direction: 'OUT', body: 'Bienvenido' },
+        { direction: 'IN', body: 'hola' },
+      ]),
     },
     knowledgeBase: {
       findUnique: jest.fn(async () => ({ id: 'default', content: 'KB' })),
@@ -234,7 +240,7 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     const prisma = {
       botSettings: { upsert },
       conversation: { findUnique: jest.fn() },
-      message: { count: jest.fn() },
+      message: { count: jest.fn(), findMany: jest.fn(async () => []) },
       knowledgeBase: { findUnique: jest.fn() },
     };
     const svc = new AutoReplyService(
@@ -254,4 +260,63 @@ describe('AutoReplyService.handleInbound — global kill switch', () => {
     );
     expect(row.globalAutoReplyEnabled).toBe(false);
   });
+
+  it('E: conversational outbound strips exact internal tokens (OTHER, PRICE_INQUIRY, …)', async () => {
+    const { svc, sendMessage, llm, prisma } = makeService({
+      globalAutoReplyEnabled: true,
+      aiMode: 'AI',
+      inboundCount: 2,
+    });
+    prisma.botSettings.upsert.mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      globalAutoReplyEnabled: true,
+    });
+    llm.chatCompletion.mockResolvedValue(
+      'Clasificado como OTHER / PRICE_INQUIRY. Estado INTERESTED. Canal PRICING.',
+    );
+
+    await svc.handleInbound('conv1', '¿cuánto cuesta?');
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const bodies = sendMessage.mock.calls.map(
+      (c: unknown[]) => c[1] as string,
+    );
+    expect(bodies[0]).not.toMatch(/\bOTHER\b/);
+    expect(bodies[0]).not.toMatch(/\bPRICE_INQUIRY\b/);
+    expect(bodies[0]).not.toMatch(/\bINTERESTED\b/);
+    expect(bodies[0]).not.toMatch(/\bPRICING\b/);
+  });
+
+  it('passes userMessage and recentHistory into buildSystemPrompt', async () => {
+    const { svc, llm, prisma } = makeService({
+      globalAutoReplyEnabled: true,
+      aiMode: 'AI',
+      inboundCount: 2,
+    });
+    prisma.botSettings.upsert.mockResolvedValue({
+      ...DEFAULT_SETTINGS,
+      globalAutoReplyEnabled: true,
+    });
+    prisma.message.findMany.mockResolvedValue([
+      // newest first (matches orderBy desc)
+      { direction: 'IN', body: 'Necesito mantenimiento' },
+      { direction: 'OUT', body: 'Bienvenido a Nova' },
+      { direction: 'IN', body: 'hola' },
+    ]);
+
+    await svc.handleInbound('conv1', 'Necesito mantenimiento');
+
+    expect(llm.buildSystemPrompt).toHaveBeenCalledWith(
+      'KB',
+      expect.anything(),
+      expect.objectContaining({
+        userMessage: 'Necesito mantenimiento',
+        recentHistory: [
+          { role: 'customer', text: 'hola' },
+          { role: 'business', text: 'Bienvenido a Nova' },
+        ],
+      }),
+    );
+  });
+
 });
